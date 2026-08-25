@@ -1,0 +1,8 @@
+.DS_Store
+.env
+.env.*
+!.env.example
+pitchtz
+coverage.out
+tmp/
+uploads/

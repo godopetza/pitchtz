@@ -1,0 +1,350 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<meta name="design_doc_mode" content="canvas">
+<link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@500;600;700;800&amp;display=swap" rel="stylesheet">
+<style>body{margin:0;background:#101512;font-family:'Plus Jakarta Sans',system-ui,sans-serif;color:#171B18}a{color:#C9F24E}a:hover{color:#fff}</style>
+</helmet>
+<div style="padding:48px 56px 72px;min-width:1560px">
+  <div style="color:#F5F4EF;font-size:24px;font-weight:800;letter-spacing:-.4px">Pitch TZ — system design</div>
+  <div style="color:rgba(245,244,239,.5);font-size:13px;font-weight:500;margin-top:4px;margin-bottom:32px">Architecture · hardening notes · full ERD · API &amp; user flows</div>
+
+  <div style="display:flex;flex-direction:column;gap:0;max-width:1480px">
+    <div style="color:#C9F24E;font-size:11px;font-weight:800;letter-spacing:1.2px;margin-bottom:10px">CLIENTS</div>
+    <div style="display:grid;grid-template-columns:repeat(5,1fr);gap:14px">
+      <div style="background:#F5F4EF;border-radius:14px;padding:16px"><div style="font-size:14px;font-weight:800">Mobile app</div><div style="font-size:11.5px;color:#6E756F;margin-top:4px;line-height:1.5">iOS &amp; Android · booking, split pay, teams, Pitch AI, PS5/FPL extras</div></div>
+      <div style="background:#F5F4EF;border-radius:14px;padding:16px"><div style="font-size:14px;font-weight:800">Client web</div><div style="font-size:11.5px;color:#6E756F;margin-top:4px;line-height:1.5">Search, calendar booking, teams, sign-in (phone/Google/Apple)</div></div>
+      <div style="background:#F5F4EF;border-radius:14px;padding:16px"><div style="font-size:14px;font-weight:800">Scan-to-pay web</div><div style="font-size:11.5px;color:#6E756F;margin-top:4px;line-height:1.5">No-app QR payments for booking shares</div></div>
+      <div style="background:#F5F4EF;border-radius:14px;padding:16px"><div style="font-size:14px;font-weight:800">Owner dashboard</div><div style="font-size:11.5px;color:#6E756F;margin-top:4px;line-height:1.5">Slots, manual bookings, extras shop, payouts, gallery</div></div>
+      <div style="background:#F5F4EF;border-radius:14px;padding:16px"><div style="font-size:14px;font-weight:800">Superadmin</div><div style="font-size:11.5px;color:#6E756F;margin-top:4px;line-height:1.5">Venues, disputes, promos, cities, config, staff roles</div></div>
+    </div>
+
+    <div style="display:flex;justify-content:center;padding:8px 0"><div style="width:2px;height:26px;background:linear-gradient(#C9F24E,#3E7C5B)"></div></div>
+
+    <div style="background:#0E3B2C;border-radius:16px;padding:18px 22px;display:flex;align-items:center;gap:22px">
+      <div><div style="font-size:15px;font-weight:800;color:#F5F4EF">API <span style="font-size:10.5px;color:#B79CE4;background:rgba(140,100,220,.18);padding:3px 8px;border-radius:6px;margin-left:6px">RAILWAY</span> <span style="font-size:10.5px;color:#F6821F;background:rgba(246,130,31,.15);padding:3px 8px;border-radius:6px;margin-left:4px">BEHIND CLOUDFLARE</span></div><div style="font-size:11.5px;color:rgba(245,244,239,.6);margin-top:2px">Node/Hono API on Railway · REST + WebSocket · Cloudflare in front: DNS, WAF, rate limiting, edge cache</div></div>
+      <div style="flex:1"></div>
+      <div style="display:flex;gap:8px">
+        <div style="background:rgba(201,242,78,.14);color:#C9F24E;border-radius:8px;padding:7px 12px;font-size:11px;font-weight:800">AUTH · JWT</div>
+        <div style="background:rgba(201,242,78,.14);color:#C9F24E;border-radius:8px;padding:7px 12px;font-size:11px;font-weight:800">OTP SMS</div>
+        <div style="background:rgba(201,242,78,.14);color:#C9F24E;border-radius:8px;padding:7px 12px;font-size:11px;font-weight:800">GOOGLE / APPLE OAUTH</div>
+        <div style="background:rgba(201,242,78,.14);color:#C9F24E;border-radius:8px;padding:7px 12px;font-size:11px;font-weight:800">RBAC · player / owner / staff / root</div>
+      </div>
+    </div>
+
+    <div style="display:flex;justify-content:center;padding:8px 0"><div style="width:2px;height:26px;background:linear-gradient(#3E7C5B,#C9F24E)"></div></div>
+
+    <div style="color:#C9F24E;font-size:11px;font-weight:800;letter-spacing:1.2px;margin-bottom:10px">CORE SERVICES</div>
+    <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:14px">
+      <div style="background:#1B211C;border:1px solid #2A302A;border-radius:14px;padding:16px"><div style="font-size:13.5px;font-weight:800;color:#F5F4EF">Search &amp; Discovery</div><div style="font-size:11.5px;color:#8B928B;margin-top:4px;line-height:1.5">Geo queries (near me, radius), filters, availability index, Pitch AI (LLM + structured search)</div></div>
+      <div style="background:#1B211C;border:1px solid #2A302A;border-radius:14px;padding:16px"><div style="font-size:13.5px;font-weight:800;color:#F5F4EF">Booking Service</div><div style="font-size:11.5px;color:#8B928B;margin-top:4px;line-height:1.5">Slot locking, multi-slot duration, repeat bookings, manual/walk-in, protected-time guarantee, cancellations</div></div>
+      <div style="background:#1B211C;border:1px solid #2A302A;border-radius:14px;padding:16px"><div style="font-size:13.5px;font-weight:800;color:#F5F4EF">Payment Service</div><div style="font-size:11.5px;color:#8B928B;margin-top:4px;line-height:1.5">Charges, bill split ledger (n shares), QR sessions, installments, refunds, payout runs, guards-fund pool</div></div>
+      <div style="background:#1B211C;border:1px solid #2A302A;border-radius:14px;padding:16px"><div style="font-size:13.5px;font-weight:800;color:#F5F4EF">Teams &amp; Matches</div><div style="font-size:11.5px;color:#8B928B;margin-top:4px;line-height:1.5">Teams, join requests, challenges, inter-match fee split, standings, FPL league sync</div></div>
+      <div style="background:#1B211C;border:1px solid #2A302A;border-radius:14px;padding:16px"><div style="font-size:13.5px;font-weight:800;color:#F5F4EF">Commerce (Extras)</div><div style="font-size:11.5px;color:#8B928B;margin-top:4px;line-height:1.5">Rentals &amp; merch catalog, stock, PS5 stations, FC 26 tournament entries, per-venue availability</div></div>
+      <div style="background:#1B211C;border:1px solid #2A302A;border-radius:14px;padding:16px"><div style="font-size:13.5px;font-weight:800;color:#F5F4EF">Venue Service</div><div style="font-size:11.5px;color:#8B928B;margin-top:4px;line-height:1.5">Profiles, gallery, pricing rules (peak), blocks, applications &amp; verification, reviews</div></div>
+      <div style="background:#1B211C;border:1px solid #2A302A;border-radius:14px;padding:16px"><div style="font-size:13.5px;font-weight:800;color:#F5F4EF">Notification Service</div><div style="font-size:11.5px;color:#8B928B;margin-top:4px;line-height:1.5">SMS receipts &amp; OTP, WhatsApp invites/splits, push, city-launch waitlist</div></div>
+      <div style="background:#1B211C;border:1px solid #2A302A;border-radius:14px;padding:16px"><div style="font-size:13.5px;font-weight:800;color:#F5F4EF">Admin &amp; Platform</div><div style="font-size:11.5px;color:#8B928B;margin-top:4px;line-height:1.5">Disputes, promos, fee config, feature flags, cities/regions, staff RBAC, analytics</div></div>
+    </div>
+
+    <div style="display:flex;justify-content:center;padding:8px 0"><div style="width:2px;height:26px;background:linear-gradient(#C9F24E,#3E7C5B)"></div></div>
+
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:14px">
+      <div>
+        <div style="color:#C9F24E;font-size:11px;font-weight:800;letter-spacing:1.2px;margin-bottom:10px">DATA</div>
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px">
+          <div style="background:#1B211C;border:1px dashed #3A403A;border-radius:12px;padding:13px"><div style="font-size:12.5px;font-weight:800;color:#F5F4EF">Railway Postgres + PostGIS</div><div style="font-size:11px;color:#8B928B;margin-top:3px">Users, venues, bookings, ledger, teams · geo index · same network as API</div></div>
+          <div style="background:#1B211C;border:1px dashed #3A403A;border-radius:12px;padding:13px"><div style="font-size:12.5px;font-weight:800;color:#F5F4EF">Railway Redis</div><div style="font-size:11px;color:#8B928B;margin-top:3px">Slot locks (10-min TTL), availability cache, OTP, sessions, split-pay state</div></div>
+          <div style="background:#1B211C;border:1px dashed #3A403A;border-radius:12px;padding:13px"><div style="font-size:12.5px;font-weight:800;color:#F5F4EF">Cloudflare R2 <span style="font-size:9.5px;color:#F6821F">CF</span></div><div style="font-size:11px;color:#8B928B;margin-top:3px">Venue photos, gallery, receipts · zero egress fees · Images for resizing</div></div>
+          <div style="background:#1B211C;border:1px dashed #3A403A;border-radius:12px;padding:13px"><div style="font-size:12.5px;font-weight:800;color:#F5F4EF">Worker/cron on Railway</div><div style="font-size:11px;color:#8B928B;margin-top:3px">Queue worker (BullMQ): webhooks, SMS fan-out, payout runs · analytics to Postgres</div></div>
+        </div>
+        <div style="background:#1B211C;border:1px solid #2A302A;border-radius:12px;padding:13px;margin-top:10px"><div style="font-size:12px;font-weight:800;color:#B79CE4">RAILWAY <span style="color:#8B928B;font-weight:600">— compute &amp; data</span></div><div style="font-size:11.5px;color:#8B928B;margin-top:5px;line-height:1.7">API service (Node/Hono) · Postgres · Redis · queue worker · cron (payouts Fri, waitlist blasts) · private networking between services</div>
+        <div style="font-size:12px;font-weight:800;color:#F6821F;margin-top:10px">CLOUDFLARE <span style="color:#8B928B;font-weight:600">— edge &amp; storage</span></div><div style="font-size:11.5px;color:#8B928B;margin-top:5px;line-height:1.7">DNS + proxy in front of Railway (WAF, rate limiting, bot fight) · Pages (client web, dashboards, scan-to-pay) · R2 bucket (photos/receipts) · Turnstile on scan-to-pay · Zero Trust for superadmin</div></div>
+      </div>
+      <div>
+        <div style="color:#C9F24E;font-size:11px;font-weight:800;letter-spacing:1.2px;margin-bottom:10px">EXTERNAL INTEGRATIONS</div>
+        <div style="display:flex;flex-wrap:wrap;gap:8px">
+          <div style="background:#F5F4EF;border-radius:9px;padding:9px 13px;font-size:12px;font-weight:800">M-Pesa (Vodacom)</div>
+          <div style="background:#F5F4EF;border-radius:9px;padding:9px 13px;font-size:12px;font-weight:800">Airtel Money</div>
+          <div style="background:#F5F4EF;border-radius:9px;padding:9px 13px;font-size:12px;font-weight:800">Mixx by Yas</div>
+          <div style="background:#F5F4EF;border-radius:9px;padding:9px 13px;font-size:12px;font-weight:800">HaloPesa</div>
+          <div style="background:#F5F4EF;border-radius:9px;padding:9px 13px;font-size:12px;font-weight:800">Card PSP</div>
+          <div style="background:#F5F4EF;border-radius:9px;padding:9px 13px;font-size:12px;font-weight:800">SMS gateway</div>
+          <div style="background:#F5F4EF;border-radius:9px;padding:9px 13px;font-size:12px;font-weight:800">WhatsApp Business API</div>
+          <div style="background:#F5F4EF;border-radius:9px;padding:9px 13px;font-size:12px;font-weight:800">Google / Apple sign-in</div>
+          <div style="background:#F5F4EF;border-radius:9px;padding:9px 13px;font-size:12px;font-weight:800">Maps &amp; geocoding</div>
+          <div style="background:#F5F4EF;border-radius:9px;padding:9px 13px;font-size:12px;font-weight:800">FPL API</div>
+          <div style="background:#F5F4EF;border-radius:9px;padding:9px 13px;font-size:12px;font-weight:800">LLM API (Pitch AI)</div>
+          <div style="background:#F5F4EF;border-radius:9px;padding:9px 13px;font-size:12px;font-weight:800">Push (FCM / APNs)</div>
+        </div>
+        <div style="background:#1B211C;border:1px solid #4A3A28;border-radius:12px;padding:13px;margin-top:12px"><div style="font-size:12px;font-weight:800;color:#DFA53C">HARDENING NOTES</div><div style="font-size:11.5px;color:#8B928B;margin-top:5px;line-height:1.75">1 · Slot lock enforced in Postgres too — unique (pitch_id, starts_at) with pending state; Redis TTL alone can race late webhooks · 2 · Installments: balance unpaid by play-day cutoff → auto-cancel + partial refund policy · 3 · PSP webhooks: idempotency key per charge + reconciliation cron polling stuck pendings · 4 · Repeat bookings: reserve all future slots, auto-release if unpaid 24h before session · 5 · Protected time: gate check-in scan timestamps feed dispute evidence</div></div>
+        <div style="background:#1B211C;border:1px solid #2A302A;border-radius:12px;padding:13px;margin-top:12px"><div style="font-size:12px;font-weight:800;color:#DFA53C">KEY FLOWS</div><div style="font-size:11.5px;color:#8B928B;margin-top:5px;line-height:1.7">Booking: lock slot (Redis) → charge (PSP webhook) → confirm → SMS/push · Split: ledger shares → QR session → auto-confirm when funded or organizer covers · Payout: weekly run = gross − fee − refunds → mobile money</div></div>
+      </div>
+    </div>
+
+    <div style="color:#C9F24E;font-size:11px;font-weight:800;letter-spacing:1.2px;margin:34px 0 10px">API SURFACE (v1)</div>
+    <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:14px">
+      <div style="background:#1B211C;border:1px solid #2A302A;border-radius:14px;padding:16px">
+        <div style="font-size:12.5px;font-weight:800;color:#F5F4EF;margin-bottom:8px">Auth &amp; users</div>
+        <div style="font-family:ui-monospace,Menlo,monospace;font-size:10.5px;color:#8B928B;line-height:2"><span style="color:#7FCB8F">POST</span> /auth/otp/send · /verify<br><span style="color:#7FCB8F">POST</span> /auth/oauth/google|apple<br><span style="color:#6EA8DC">GET</span> /me · <span style="color:#DFA53C">PATCH</span> /me<br><span style="color:#6EA8DC">GET</span> /me/bookings · /favorites</div>
+      </div>
+      <div style="background:#1B211C;border:1px solid #2A302A;border-radius:14px;padding:16px">
+        <div style="font-size:12.5px;font-weight:800;color:#F5F4EF;margin-bottom:8px">Search &amp; venues</div>
+        <div style="font-family:ui-monospace,Menlo,monospace;font-size:10.5px;color:#8B928B;line-height:2"><span style="color:#6EA8DC">GET</span> /venues?near&amp;radius&amp;format&amp;date<br><span style="color:#6EA8DC">GET</span> /venues/:id · /availability<br><span style="color:#7FCB8F">POST</span> /ai/search (natural language)<br><span style="color:#7FCB8F">POST</span> /venues/:id/reviews</div>
+      </div>
+      <div style="background:#1B211C;border:1px solid #2A302A;border-radius:14px;padding:16px">
+        <div style="font-size:12.5px;font-weight:800;color:#F5F4EF;margin-bottom:8px">Bookings &amp; payments</div>
+        <div style="font-family:ui-monospace,Menlo,monospace;font-size:10.5px;color:#8B928B;line-height:2"><span style="color:#7FCB8F">POST</span> /bookings (slots[], extras, repeat)<br><span style="color:#7FCB8F">POST</span> /bookings/:id/pay (full|installment|split n)<br><span style="color:#6EA8DC">GET</span> /pay/qr/:session · <span style="color:#7FCB8F">POST</span> /pay/qr/:session<br><span style="color:#7FCB8F">POST</span> /webhooks/mpesa|airtel|card</div>
+      </div>
+      <div style="background:#1B211C;border:1px solid #2A302A;border-radius:14px;padding:16px">
+        <div style="font-size:12.5px;font-weight:800;color:#F5F4EF;margin-bottom:8px">Teams · owner · admin</div>
+        <div style="font-family:ui-monospace,Menlo,monospace;font-size:10.5px;color:#8B928B;line-height:2"><span style="color:#7FCB8F">POST</span> /teams · /:id/join · /:id/challenge<br><span style="color:#6EA8DC">GET</span> /owner/schedule · <span style="color:#7FCB8F">POST</span> /owner/bookings<br><span style="color:#DFA53C">PATCH</span> /owner/slots/:id/block<br><span style="color:#7FCB8F">POST</span> /admin/venues/:id/approve · /disputes/:id</div>
+      </div>
+    </div>
+
+    <div style="color:#C9F24E;font-size:11px;font-weight:800;letter-spacing:1.2px;margin:34px 0 10px">KEY USER FLOWS</div>
+    <div style="display:flex;flex-direction:column;gap:12px">
+      <div style="background:#F5F4EF;border-radius:14px;padding:16px 18px">
+        <div style="font-size:12.5px;font-weight:800;margin-bottom:10px">1 · Book &amp; split</div>
+        <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;font-size:11.5px;font-weight:700">
+          <span style="background:#fff;border:1px solid #E1DFD5;border-radius:8px;padding:8px 12px">Search / Pitch AI</span><span style="color:#9AA09A">→</span>
+          <span style="background:#fff;border:1px solid #E1DFD5;border-radius:8px;padding:8px 12px">Pick slots + duration</span><span style="color:#9AA09A">→</span>
+          <span style="background:#fff;border:1px solid #E1DFD5;border-radius:8px;padding:8px 12px">Slot lock (Redis, 10 min)</span><span style="color:#9AA09A">→</span>
+          <span style="background:#fff;border:1px solid #E1DFD5;border-radius:8px;padding:8px 12px">Extras + tips</span><span style="color:#9AA09A">→</span>
+          <span style="background:#fff;border:1px solid #E1DFD5;border-radius:8px;padding:8px 12px">Split ×n → QR + WhatsApp links</span><span style="color:#9AA09A">→</span>
+          <span style="background:#fff;border:1px solid #E1DFD5;border-radius:8px;padding:8px 12px">STK push / QR shares</span><span style="color:#9AA09A">→</span>
+          <span style="background:#0E3B2C;color:#C9F24E;border-radius:8px;padding:8px 12px">Confirmed · code + SMS</span>
+        </div>
+      </div>
+      <div style="background:#F5F4EF;border-radius:14px;padding:16px 18px">
+        <div style="font-size:12.5px;font-weight:800;margin-bottom:10px">2 · Scan-to-pay (no app)</div>
+        <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;font-size:11.5px;font-weight:700">
+          <span style="background:#fff;border:1px solid #E1DFD5;border-radius:8px;padding:8px 12px">Scan QR</span><span style="color:#9AA09A">→</span>
+          <span style="background:#fff;border:1px solid #E1DFD5;border-radius:8px;padding:8px 12px">pay.pitchtz.co.tz/s/:code (Pages + Turnstile)</span><span style="color:#9AA09A">→</span>
+          <span style="background:#fff;border:1px solid #E1DFD5;border-radius:8px;padding:8px 12px">See share amount</span><span style="color:#9AA09A">→</span>
+          <span style="background:#fff;border:1px solid #E1DFD5;border-radius:8px;padding:8px 12px">M-Pesa STK push</span><span style="color:#9AA09A">→</span>
+          <span style="background:#fff;border:1px solid #E1DFD5;border-radius:8px;padding:8px 12px">Webhook → ledger update (BullMQ)</span><span style="color:#9AA09A">→</span>
+          <span style="background:#0E3B2C;color:#C9F24E;border-radius:8px;padding:8px 12px">SMS receipt · booking auto-confirms when funded</span>
+        </div>
+      </div>
+      <div style="background:#F5F4EF;border-radius:14px;padding:16px 18px">
+        <div style="font-size:12.5px;font-weight:800;margin-bottom:10px">3 · Owner payout</div>
+        <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;font-size:11.5px;font-weight:700">
+          <span style="background:#fff;border:1px solid #E1DFD5;border-radius:8px;padding:8px 12px">Railway cron (Fri)</span><span style="color:#9AA09A">→</span>
+          <span style="background:#fff;border:1px solid #E1DFD5;border-radius:8px;padding:8px 12px">Aggregate week: gross − 10% fee − refunds</span><span style="color:#9AA09A">→</span>
+          <span style="background:#fff;border:1px solid #E1DFD5;border-radius:8px;padding:8px 12px">B2C mobile-money transfer</span><span style="color:#9AA09A">→</span>
+          <span style="background:#fff;border:1px solid #E1DFD5;border-radius:8px;padding:8px 12px">Guards fund + tips distributed</span><span style="color:#9AA09A">→</span>
+          <span style="background:#0E3B2C;color:#C9F24E;border-radius:8px;padding:8px 12px">Statement in owner dashboard</span>
+        </div>
+      </div>
+    </div>
+
+    <div style="color:#C9F24E;font-size:11px;font-weight:800;letter-spacing:1.2px;margin:32px 0 10px">DELIVERY &amp; OPERATIONS</div>
+    <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:14px">
+      <div style="background:#1B211C;border:1px solid #2A302A;border-radius:14px;padding:16px"><div style="font-size:13.5px;font-weight:800;color:#F5F4EF">CI / CD</div><div style="font-size:11.5px;color:#8B928B;margin-top:4px;line-height:1.6">GitHub → Actions: test + lint → Railway deploy (API, worker, cron) · Cloudflare Pages deploy (client web, dashboards, scan-to-pay) · DB migrations (Drizzle/Prisma) gated per release · preview envs per PR</div></div>
+      <div style="background:#1B211C;border:1px solid #2A302A;border-radius:14px;padding:16px"><div style="font-size:13.5px;font-weight:800;color:#F5F4EF">Observability</div><div style="font-size:11.5px;color:#8B928B;margin-top:4px;line-height:1.6">Sentry (API + apps) · structured logs + metrics on Railway · uptime checks on /health · payment funnel dashboards (initiated → success) · alert on webhook lag &amp; failed-payout runs</div></div>
+      <div style="background:#1B211C;border:1px solid #2A302A;border-radius:14px;padding:16px"><div style="font-size:13.5px;font-weight:800;color:#F5F4EF">Security &amp; backup</div><div style="font-size:11.5px;color:#8B928B;margin-top:4px;line-height:1.6">JWT short-lived + refresh rotation · PSP webhook signature verification · TLS end-to-end · Postgres PITR backups (daily + WAL) · R2 versioning · rate limits at Cloudflare · Turnstile on scan-to-pay · Zero Trust on superadmin</div></div>
+    </div>
+
+    <div style="color:#C9F24E;font-size:11px;font-weight:800;letter-spacing:1.2px;margin:36px 0 4px">ENTITY-RELATIONSHIP DIAGRAM</div>
+    <div style="color:rgba(245,244,239,.45);font-size:12px;margin-bottom:14px">Railway Postgres + PostGIS · solid line = FK · dashed = loose/optional link · lime = money-critical path</div>
+    <div style="background:#141917;border:1px solid #2A302A;border-radius:16px;padding:20px;margin-bottom:28px;overflow-x:auto">
+      <svg width="1480" height="700" viewBox="0 0 1480 700" style="display:block;min-width:1480px;font-family:'Plus Jakarta Sans',sans-serif">
+        <g stroke="#3E7C5B" stroke-width="1.5" fill="none" opacity="0.9">
+          <line x1="240" y1="47" x2="640" y2="47"></line>
+          <line x1="150" y1="64" x2="150" y2="130"></line>
+          <line x1="150" y1="64" x2="340" y2="133"></line>
+          <line x1="660" y1="64" x2="450" y2="133"></line>
+          <line x1="820" y1="50" x2="960" y2="140"></line>
+          <line x1="480" y1="150" x2="960" y2="150"></line>
+          <line x1="730" y1="64" x2="730" y2="258"></line>
+          <line x1="390" y1="164" x2="390" y2="230"></line>
+          <line x1="480" y1="250" x2="630" y2="272"></line>
+          <line x1="330" y1="264" x2="200" y2="330"></line>
+          <line x1="330" y1="164" x2="200" y2="230"></line>
+          <line x1="370" y1="164" x2="190" y2="430"></line>
+          <line x1="240" y1="447" x2="300" y2="447"></line>
+          <line x1="630" y1="288" x2="480" y2="443"></line>
+          <line x1="830" y1="277" x2="960" y2="277" stroke="#C9F24E" stroke-width="2"></line>
+          <line x1="1140" y1="277" x2="1200" y2="277" stroke="#C9F24E" stroke-width="2"></line>
+          <line x1="830" y1="292" x2="960" y2="372"></line>
+          <line x1="830" y1="262" x2="1200" y2="152"></line>
+          <line x1="820" y1="55" x2="1240" y2="132"></line>
+          <path d="M300,157 L270,157 L270,547 L300,547" stroke="#C9F24E" stroke-width="2"></path>
+          <path d="M700,64 L560,120 L560,430 L640,445"></path>
+          <path d="M680,64 L540,120 L540,547 L640,547"></path>
+          <line x1="730" y1="464" x2="730" y2="530"></line>
+          <line x1="820" y1="462" x2="860" y2="477"></line>
+          <line x1="950" y1="460" x2="815" y2="302"></line>
+          <line x1="660" y1="464" x2="450" y2="632"></line>
+          <path d="M1290,30 L1290,14 L730,14 L730,30"></path>
+        </g>
+        <g stroke="#6E756F" stroke-width="1.3" fill="none" stroke-dasharray="5 4" opacity="0.75">
+          <line x1="640" y1="55" x2="240" y2="138"></line>
+          <line x1="960" y1="47" x2="820" y2="47"></line>
+          <line x1="1200" y1="440" x2="835" y2="288"></line>
+          <path d="M1140,577 L1170,577 L1170,85 L820,52"></path>
+          <path d="M1140,375 L1395,375 L1395,50 L1380,50"></path>
+        </g>
+        <g font-size="10" font-weight="700" fill="#8B928B">
+          <text x="740" y="160">1 — n</text><text x="398" y="200">1 — n</text>
+          <text x="540" y="248">1 — n</text><text x="878" y="270">1 — n</text>
+          <text x="1152" y="270">1 — n</text><text x="238" y="360">1 — n</text>
+          <text x="1000" y="205">1 — 1</text><text x="500" y="380">n — n</text>
+          <text x="548" y="300" transform="rotate(90 548 300)">n — n via members</text>
+          <text x="870" y="395">1 — n</text>
+        </g>
+        <g font-size="12" font-weight="800">
+          <g><rect x="60" y="30" width="180" height="34" rx="8" fill="#1B211C" stroke="#2A302A"></rect><text x="150" y="51" text-anchor="middle" fill="#C9F24E">cities</text></g>
+          <g><rect x="640" y="30" width="180" height="34" rx="8" fill="#1B211C" stroke="#3E7C5B"></rect><text x="730" y="51" text-anchor="middle" fill="#C9F24E">users</text></g>
+          <g><rect x="960" y="30" width="180" height="34" rx="8" fill="#1B211C" stroke="#2A302A"></rect><text x="1050" y="51" text-anchor="middle" fill="#C9F24E">notifications</text></g>
+          <g><rect x="1200" y="30" width="180" height="34" rx="8" fill="#1B211C" stroke="#2A302A"></rect><text x="1290" y="51" text-anchor="middle" fill="#C9F24E">admin_staff</text></g>
+          <g><rect x="60" y="130" width="180" height="34" rx="8" fill="#1B211C" stroke="#2A302A"></rect><text x="150" y="151" text-anchor="middle" fill="#C9F24E">city_waitlist</text></g>
+          <g><rect x="300" y="130" width="180" height="34" rx="8" fill="#1B211C" stroke="#3E7C5B"></rect><text x="390" y="151" text-anchor="middle" fill="#C9F24E">venues</text></g>
+          <g><rect x="960" y="130" width="180" height="34" rx="8" fill="#1B211C" stroke="#2A302A"></rect><text x="1050" y="151" text-anchor="middle" fill="#C9F24E">favorites</text></g>
+          <g><rect x="1200" y="130" width="180" height="34" rx="8" fill="#1B211C" stroke="#2A302A"></rect><text x="1290" y="151" text-anchor="middle" fill="#C9F24E">reviews</text></g>
+          <g><rect x="60" y="230" width="180" height="34" rx="8" fill="#1B211C" stroke="#2A302A"></rect><text x="150" y="251" text-anchor="middle" fill="#C9F24E">venue_photos → R2</text></g>
+          <g><rect x="300" y="230" width="180" height="34" rx="8" fill="#1B211C" stroke="#3E7C5B"></rect><text x="390" y="251" text-anchor="middle" fill="#C9F24E">pitches</text></g>
+          <g><rect x="60" y="330" width="180" height="34" rx="8" fill="#1B211C" stroke="#2A302A"></rect><text x="150" y="351" text-anchor="middle" fill="#C9F24E">slot_blocks</text></g>
+          <g><rect x="60" y="430" width="180" height="34" rx="8" fill="#1B211C" stroke="#2A302A"></rect><text x="150" y="451" text-anchor="middle" fill="#C9F24E">extras_catalog</text></g>
+          <g><rect x="300" y="430" width="180" height="34" rx="8" fill="#1B211C" stroke="#2A302A"></rect><text x="390" y="451" text-anchor="middle" fill="#C9F24E">booking_extras</text></g>
+          <g><rect x="630" y="258" width="200" height="44" rx="9" fill="#0E3B2C" stroke="#C9F24E" stroke-width="1.5"></rect><text x="730" y="285" text-anchor="middle" fill="#C9F24E" font-size="13">bookings ★</text></g>
+          <g><rect x="960" y="260" width="180" height="34" rx="8" fill="#1B211C" stroke="#C9F24E"></rect><text x="1050" y="281" text-anchor="middle" fill="#C9F24E">payment_shares ★</text></g>
+          <g><rect x="1200" y="260" width="180" height="34" rx="8" fill="#1B211C" stroke="#C9F24E"></rect><text x="1290" y="281" text-anchor="middle" fill="#C9F24E">transactions</text></g>
+          <g><rect x="960" y="360" width="180" height="34" rx="8" fill="#1B211C" stroke="#2A302A"></rect><text x="1050" y="381" text-anchor="middle" fill="#C9F24E">disputes</text></g>
+          <g><rect x="640" y="430" width="180" height="34" rx="8" fill="#1B211C" stroke="#2A302A"></rect><text x="730" y="451" text-anchor="middle" fill="#C9F24E">teams</text></g>
+          <g><rect x="860" y="460" width="180" height="34" rx="8" fill="#1B211C" stroke="#2A302A"></rect><text x="950" y="481" text-anchor="middle" fill="#C9F24E">matches</text></g>
+          <g><rect x="1200" y="430" width="180" height="34" rx="8" fill="#1B211C" stroke="#2A302A"></rect><text x="1290" y="451" text-anchor="middle" fill="#C9F24E">promotions</text></g>
+          <g><rect x="640" y="530" width="180" height="34" rx="8" fill="#1B211C" stroke="#2A302A"></rect><text x="730" y="551" text-anchor="middle" fill="#C9F24E">team_members</text></g>
+          <g><rect x="960" y="560" width="180" height="34" rx="8" fill="#1B211C" stroke="#2A302A"></rect><text x="1050" y="581" text-anchor="middle" fill="#C9F24E">tournaments (FC 26)</text></g>
+          <g><rect x="300" y="530" width="180" height="34" rx="8" fill="#1B211C" stroke="#C9F24E"></rect><text x="390" y="551" text-anchor="middle" fill="#C9F24E">payouts</text></g>
+          <g><rect x="300" y="630" width="180" height="34" rx="8" fill="#1B211C" stroke="#2A302A"></rect><text x="390" y="651" text-anchor="middle" fill="#C9F24E">leagues · standings</text></g>
+        </g>
+        <g font-size="10.5" font-weight="700" fill="#6E756F">
+          <text x="60" y="690">— solid: foreign key · - - dashed: optional link · lime boxes/lines: money path (bookings → shares → transactions → payouts)</text>
+        </g>
+      </svg>
+    </div>
+    <div style="color:rgba(245,244,239,.45);font-size:12px;font-weight:700;margin-bottom:12px">TABLE DICTIONARY — full columns per entity</div>
+    <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:14px;align-items:start">
+
+      <div style="display:flex;flex-direction:column;gap:14px">
+        <div style="background:#1B211C;border:1px solid #2A302A;border-radius:14px;overflow:hidden">
+          <div style="background:#0E3B2C;padding:10px 14px;font-size:13px;font-weight:800;color:#C9F24E">users</div>
+          <div style="padding:10px 14px;font-family:ui-monospace,Menlo,monospace;font-size:10.5px;color:#B9BFB8;line-height:1.9"><b style="color:#F5F4EF">id</b> uuid<br>phone unique · verified_at<br>name · avatar_url<br>auth_provider enum(phone,google,apple)<br>language enum(en,sw)<br>city_id → cities<br>role enum(player,owner,staff,root)<br>fpl_team_id nullable<br>created_at</div>
+        </div>
+        <div style="background:#1B211C;border:1px solid #2A302A;border-radius:14px;overflow:hidden">
+          <div style="background:#0E3B2C;padding:10px 14px;font-size:13px;font-weight:800;color:#C9F24E">cities</div>
+          <div style="padding:10px 14px;font-family:ui-monospace,Menlo,monospace;font-size:10.5px;color:#B9BFB8;line-height:1.9"><b style="color:#F5F4EF">id</b> uuid<br>name · status enum(live,waitlist)<br>launch_eta · center geog</div>
+        </div>
+        <div style="background:#1B211C;border:1px solid #2A302A;border-radius:14px;overflow:hidden">
+          <div style="background:#0E3B2C;padding:10px 14px;font-size:13px;font-weight:800;color:#C9F24E">city_waitlist</div>
+          <div style="padding:10px 14px;font-family:ui-monospace,Menlo,monospace;font-size:10.5px;color:#B9BFB8;line-height:1.9"><b style="color:#F5F4EF">id</b> uuid<br>city_id → cities · phone<br>user_id → users nullable<br>notified_at nullable</div>
+        </div>
+        <div style="background:#1B211C;border:1px solid #2A302A;border-radius:14px;overflow:hidden">
+          <div style="background:#0E3B2C;padding:10px 14px;font-size:13px;font-weight:800;color:#C9F24E">favorites</div>
+          <div style="padding:10px 14px;font-family:ui-monospace,Menlo,monospace;font-size:10.5px;color:#B9BFB8;line-height:1.9"><b style="color:#F5F4EF">user_id + venue_id</b> PK<br>→ users · → venues · created_at</div>
+        </div>
+        <div style="background:#1B211C;border:1px solid #2A302A;border-radius:14px;overflow:hidden">
+          <div style="background:#0E3B2C;padding:10px 14px;font-size:13px;font-weight:800;color:#C9F24E">admin_staff</div>
+          <div style="padding:10px 14px;font-family:ui-monospace,Menlo,monospace;font-size:10.5px;color:#B9BFB8;line-height:1.9"><b style="color:#F5F4EF">id</b> uuid · user_id → users<br>role enum(superadmin,ops,finance,growth,support)<br>scopes jsonb · last_active_at</div>
+        </div>
+      </div>
+
+      <div style="display:flex;flex-direction:column;gap:14px">
+        <div style="background:#1B211C;border:1px solid #2A302A;border-radius:14px;overflow:hidden">
+          <div style="background:#0E3B2C;padding:10px 14px;font-size:13px;font-weight:800;color:#C9F24E">venues</div>
+          <div style="padding:10px 14px;font-family:ui-monospace,Menlo,monospace;font-size:10.5px;color:#B9BFB8;line-height:1.9"><b style="color:#F5F4EF">id</b> uuid<br>owner_id → users · city_id → cities<br>name · area · location geog (PostGIS)<br>status enum(pending,review,active,suspended)<br>fee_rate_bps int (1000 = 10%)<br>verified bool · rating cached<br>amenities jsonb · rules jsonb<br>peak_multiplier_bps (12500)<br>cancel_window_hours · auto_confirm</div>
+        </div>
+        <div style="background:#1B211C;border:1px solid #2A302A;border-radius:14px;overflow:hidden">
+          <div style="background:#0E3B2C;padding:10px 14px;font-size:13px;font-weight:800;color:#C9F24E">pitches</div>
+          <div style="padding:10px 14px;font-family:ui-monospace,Menlo,monospace;font-size:10.5px;color:#B9BFB8;line-height:1.9"><b style="color:#F5F4EF">id</b> uuid · venue_id → venues<br>format enum(5,7,11,futsal)<br>surface enum(turf,grass,indoor,concrete)<br>base_price_tzs int · open_hours jsonb</div>
+        </div>
+        <div style="background:#1B211C;border:1px solid #2A302A;border-radius:14px;overflow:hidden">
+          <div style="background:#0E3B2C;padding:10px 14px;font-size:13px;font-weight:800;color:#C9F24E">slot_blocks</div>
+          <div style="padding:10px 14px;font-family:ui-monospace,Menlo,monospace;font-size:10.5px;color:#B9BFB8;line-height:1.9"><b style="color:#F5F4EF">id</b> uuid · pitch_id → pitches<br>starts_at · ends_at · reason<br>created_by → users</div>
+        </div>
+        <div style="background:#1B211C;border:1px solid #2A302A;border-radius:14px;overflow:hidden">
+          <div style="background:#0E3B2C;padding:10px 14px;font-size:13px;font-weight:800;color:#C9F24E">venue_photos</div>
+          <div style="padding:10px 14px;font-family:ui-monospace,Menlo,monospace;font-size:10.5px;color:#B9BFB8;line-height:1.9"><b style="color:#F5F4EF">id</b> uuid · venue_id → venues<br>r2_key (Cloudflare R2) · sort · alt</div>
+        </div>
+        <div style="background:#1B211C;border:1px solid #2A302A;border-radius:14px;overflow:hidden">
+          <div style="background:#0E3B2C;padding:10px 14px;font-size:13px;font-weight:800;color:#C9F24E">reviews</div>
+          <div style="padding:10px 14px;font-family:ui-monospace,Menlo,monospace;font-size:10.5px;color:#B9BFB8;line-height:1.9"><b style="color:#F5F4EF">id</b> uuid<br>booking_id → bookings unique<br>user_id → users · venue_id → venues<br>stars 1-5 · text · tags text[]<br>owner_reply · replied_at</div>
+        </div>
+        <div style="background:#1B211C;border:1px solid #2A302A;border-radius:14px;overflow:hidden">
+          <div style="background:#0E3B2C;padding:10px 14px;font-size:13px;font-weight:800;color:#C9F24E">extras_catalog</div>
+          <div style="padding:10px 14px;font-family:ui-monospace,Menlo,monospace;font-size:10.5px;color:#B9BFB8;line-height:1.9"><b style="color:#F5F4EF">id</b> uuid · venue_id → venues<br>kind enum(rent,sell,service)<br>name · price_tzs · unit(hr,item,carton)<br>stock int · available bool</div>
+        </div>
+      </div>
+
+      <div style="display:flex;flex-direction:column;gap:14px">
+        <div style="background:#1B211C;border:1.5px solid #C9F24E;border-radius:14px;overflow:hidden">
+          <div style="background:#0E3B2C;padding:10px 14px;font-size:13px;font-weight:800;color:#C9F24E">bookings ★</div>
+          <div style="padding:10px 14px;font-family:ui-monospace,Menlo,monospace;font-size:10.5px;color:#B9BFB8;line-height:1.9"><b style="color:#F5F4EF">id</b> uuid · code "PITCH-7284" unique<br>pitch_id → pitches · user_id → users nullable<br>team_id → teams nullable<br>starts_at · ends_at <span style="color:#8B928B">// protected time</span><br>UNIQUE (pitch_id, starts_at) <span style="color:#DFA53C">// hardening 1</span><br>source enum(app,web,manual,ai)<br>status enum(pending,confirmed,part_paid,<br>  completed,cancelled,disputed)<br>repeat_rule enum(once,weekly4,monthly,3months)<br>repeat_parent_id → bookings nullable<br>pitch_fee_tzs · service_fee_tzs (3000)<br>total_tzs · checked_in_at nullable<br>cancelled_at · created_at</div>
+        </div>
+        <div style="background:#1B211C;border:1px solid #2A302A;border-radius:14px;overflow:hidden">
+          <div style="background:#0E3B2C;padding:10px 14px;font-size:13px;font-weight:800;color:#C9F24E">booking_extras</div>
+          <div style="padding:10px 14px;font-family:ui-monospace,Menlo,monospace;font-size:10.5px;color:#B9BFB8;line-height:1.9"><b style="color:#F5F4EF">booking_id + extra_id</b> PK<br>→ bookings · → extras_catalog<br>qty · price_tzs_each snapshot</div>
+        </div>
+        <div style="background:#1B211C;border:1.5px solid #C9F24E;border-radius:14px;overflow:hidden">
+          <div style="background:#0E3B2C;padding:10px 14px;font-size:13px;font-weight:800;color:#C9F24E">payment_shares ★ (split ledger)</div>
+          <div style="padding:10px 14px;font-family:ui-monospace,Menlo,monospace;font-size:10.5px;color:#B9BFB8;line-height:1.9"><b style="color:#F5F4EF">id</b> uuid · booking_id → bookings<br>payer_user_id → users nullable <span style="color:#8B928B">// QR = null</span><br>payer_phone · amount_tzs<br>kind enum(full,share,installment_1,installment_2,<br>  organizer_cover,tip_guards,tip_venue)<br>qr_session_id nullable · due_at<br>status enum(unpaid,pending,paid,refunded,failed)<br>paid_at</div>
+        </div>
+        <div style="background:#1B211C;border:1px solid #2A302A;border-radius:14px;overflow:hidden">
+          <div style="background:#0E3B2C;padding:10px 14px;font-size:13px;font-weight:800;color:#C9F24E">transactions</div>
+          <div style="padding:10px 14px;font-family:ui-monospace,Menlo,monospace;font-size:10.5px;color:#B9BFB8;line-height:1.9"><b style="color:#F5F4EF">id</b> uuid · share_id → payment_shares<br>provider enum(mpesa,airtel,mixx,halo,card)<br>provider_ref · idempotency_key unique <span style="color:#DFA53C">// hardening 3</span><br>amount_tzs · direction enum(charge,refund)<br>status enum(initiated,pending,success,failed)<br>webhook_at · reconciled_at</div>
+        </div>
+        <div style="background:#1B211C;border:1px solid #2A302A;border-radius:14px;overflow:hidden">
+          <div style="background:#0E3B2C;padding:10px 14px;font-size:13px;font-weight:800;color:#C9F24E">payouts</div>
+          <div style="padding:10px 14px;font-family:ui-monospace,Menlo,monospace;font-size:10.5px;color:#B9BFB8;line-height:1.9"><b style="color:#F5F4EF">id</b> uuid · venue_id → venues<br>period_start · period_end<br>gross_tzs · fee_tzs · refunds_tzs · net_tzs<br>method (mpesa •••4102)<br>status enum(scheduled,paid,failed) · paid_at</div>
+        </div>
+        <div style="background:#1B211C;border:1px solid #2A302A;border-radius:14px;overflow:hidden">
+          <div style="background:#0E3B2C;padding:10px 14px;font-size:13px;font-weight:800;color:#C9F24E">disputes</div>
+          <div style="padding:10px 14px;font-family:ui-monospace,Menlo,monospace;font-size:10.5px;color:#B9BFB8;line-height:1.9"><b style="color:#F5F4EF">id</b> uuid · booking_id → bookings<br>kind enum(refund,time_not_honoured,<br>  split_stuck,venue_no_show)<br>opened_by → users · detail text<br>evidence jsonb <span style="color:#DFA53C">// check-in scans, hardening 5</span><br>status enum(open,refunded,resolved)<br>resolved_by → admin_staff · resolved_at</div>
+        </div>
+      </div>
+
+      <div style="display:flex;flex-direction:column;gap:14px">
+        <div style="background:#1B211C;border:1px solid #2A302A;border-radius:14px;overflow:hidden">
+          <div style="background:#0E3B2C;padding:10px 14px;font-size:13px;font-weight:800;color:#C9F24E">teams</div>
+          <div style="padding:10px 14px;font-family:ui-monospace,Menlo,monospace;font-size:10.5px;color:#B9BFB8;line-height:1.9"><b style="color:#F5F4EF">id</b> uuid · name · tag(2ch)<br>captain_id → users · city_id → cities<br>format enum(5,7,11,futsal)<br>recruiting bool · needs text<br>league_id → leagues nullable</div>
+        </div>
+        <div style="background:#1B211C;border:1px solid #2A302A;border-radius:14px;overflow:hidden">
+          <div style="background:#0E3B2C;padding:10px 14px;font-size:13px;font-weight:800;color:#C9F24E">team_members</div>
+          <div style="padding:10px 14px;font-family:ui-monospace,Menlo,monospace;font-size:10.5px;color:#B9BFB8;line-height:1.9"><b style="color:#F5F4EF">team_id + user_id</b> PK<br>role enum(captain,player)<br>status enum(requested,active,left)</div>
+        </div>
+        <div style="background:#1B211C;border:1px solid #2A302A;border-radius:14px;overflow:hidden">
+          <div style="background:#0E3B2C;padding:10px 14px;font-size:13px;font-weight:800;color:#C9F24E">matches (inter-team)</div>
+          <div style="padding:10px 14px;font-family:ui-monospace,Menlo,monospace;font-size:10.5px;color:#B9BFB8;line-height:1.9"><b style="color:#F5F4EF">id</b> uuid<br>home_team_id · away_team_id → teams<br>booking_id → bookings <span style="color:#8B928B">// fee split 50/50</span><br>status enum(challenge_sent,accepted,<br>  played,cancelled)<br>home_score · away_score · played_at</div>
+        </div>
+        <div style="background:#1B211C;border:1px solid #2A302A;border-radius:14px;overflow:hidden">
+          <div style="background:#0E3B2C;padding:10px 14px;font-size:13px;font-weight:800;color:#C9F24E">leagues + standings</div>
+          <div style="padding:10px 14px;font-family:ui-monospace,Menlo,monospace;font-size:10.5px;color:#B9BFB8;line-height:1.9"><b style="color:#F5F4EF">id</b> uuid · name · city_id · season<br>standings: <b style="color:#F5F4EF">league_id + team_id</b> PK<br>played · won · drawn · lost · pts<br><span style="color:#8B928B">// recomputed from matches on result</span></div>
+        </div>
+        <div style="background:#1B211C;border:1px solid #2A302A;border-radius:14px;overflow:hidden">
+          <div style="background:#0E3B2C;padding:10px 14px;font-size:13px;font-weight:800;color:#C9F24E">tournaments (FC 26)</div>
+          <div style="padding:10px 14px;font-family:ui-monospace,Menlo,monospace;font-size:10.5px;color:#B9BFB8;line-height:1.9"><b style="color:#F5F4EF">id</b> uuid · kind enum(online,in_venue)<br>venue_id nullable · entry_fee_tzs<br>entries: user_id + tournament_id<br>bracket jsonb · pot_tzs · winner_id</div>
+        </div>
+        <div style="background:#1B211C;border:1px solid #2A302A;border-radius:14px;overflow:hidden">
+          <div style="background:#0E3B2C;padding:10px 14px;font-size:13px;font-weight:800;color:#C9F24E">promotions</div>
+          <div style="padding:10px 14px;font-family:ui-monospace,Menlo,monospace;font-size:10.5px;color:#B9BFB8;line-height:1.9"><b style="color:#F5F4EF">id</b> uuid · code unique (KARIBU20)<br>discount_bps · scope enum(new_users,all,<br>  teams,seasonal)<br>status enum(draft,active,paused)<br>uses int · spend_driven_tzs</div>
+        </div>
+        <div style="background:#1B211C;border:1px solid #2A302A;border-radius:14px;overflow:hidden">
+          <div style="background:#0E3B2C;padding:10px 14px;font-size:13px;font-weight:800;color:#C9F24E">notifications</div>
+          <div style="padding:10px 14px;font-family:ui-monospace,Menlo,monospace;font-size:10.5px;color:#B9BFB8;line-height:1.9"><b style="color:#F5F4EF">id</b> uuid · user_id nullable · phone<br>channel enum(sms,whatsapp,push)<br>template · payload jsonb<br>status enum(queued,sent,failed) · sent_at</div>
+        </div>
+      </div>
+    </div>
+    <div style="background:#1B211C;border:1px solid #2A302A;border-radius:12px;padding:13px 16px;margin-top:14px"><div style="font-size:12px;font-weight:800;color:#C9F24E">KEY RELATIONSHIPS</div><div style="font-size:11.5px;color:#8B928B;margin-top:5px;line-height:1.75">users 1—n bookings · venues 1—n pitches 1—n bookings · bookings 1—n payment_shares 1—n transactions · bookings 1—1 reviews · bookings 1—n booking_extras n—1 extras_catalog · teams n—n users (team_members) · matches n—1 bookings · venues 1—n payouts · bookings 1—n disputes · cities 1—n venues/teams/users · repeat bookings self-reference via repeat_parent_id</div></div>
+  </div>
+</div>
+</x-dc>
+</body>
+</html>
