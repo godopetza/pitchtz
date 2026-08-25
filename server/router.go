@@ -9,6 +9,7 @@ import (
 	"github.com/gin-contrib/cors"
 	"github.com/gin-gonic/gin"
 	"github.com/godopetza/pitchtz/initializers"
+	"github.com/godopetza/pitchtz/models"
 	"github.com/godopetza/pitchtz/server/handlers"
 	"github.com/godopetza/pitchtz/server/middleware"
 	"github.com/godopetza/pitchtz/store"
@@ -53,8 +54,23 @@ func NewRouterWithDeps(deps Deps) *gin.Engine {
 		utils.EnvInt("WAITLIST_RATE_LIMIT_PER_MIN", 5),
 		utils.EnvInt("WAITLIST_RATE_LIMIT_BURST", 5),
 	)
+	adminLoginLimiter := middleware.NewIPRateLimiter(
+		utils.EnvInt("ADMIN_LOGIN_RATE_LIMIT_PER_MIN", 10),
+		utils.EnvInt("ADMIN_LOGIN_RATE_LIMIT_BURST", 10),
+	)
+	ownerLoginLimiter := middleware.NewIPRateLimiter(
+		utils.EnvInt("OWNER_LOGIN_RATE_LIMIT_PER_MIN", 10),
+		utils.EnvInt("OWNER_LOGIN_RATE_LIMIT_BURST", 10),
+	)
+	enrollLimiter := middleware.NewIPRateLimiter(
+		utils.EnvInt("ENROLL_RATE_LIMIT_PER_MIN", 5),
+		utils.EnvInt("ENROLL_RATE_LIMIT_BURST", 5),
+	)
 
 	router.GET("/health", handlers.Health)
+	router.GET("/docs", SwaggerUI)
+	router.GET("/docs/", SwaggerUI)
+	router.GET("/openapi.yaml", OpenAPISpec)
 	v1 := router.Group("/v1")
 	{
 		v1.GET("/cities", publicAPI.ListCities)
@@ -64,6 +80,27 @@ func NewRouterWithDeps(deps Deps) *gin.Engine {
 		v1.GET("/venues/:id/reviews", publicAPI.ListVenueReviews)
 		v1.GET("/venues/:id/extras", publicAPI.ListVenueExtras)
 		v1.POST("/waitlist", waitlistLimiter.Middleware(), publicAPI.JoinWaitlist)
+		v1.POST("/venues/enroll", enrollLimiter.Middleware(), publicAPI.EnrollVenue)
+
+		admin := v1.Group("/admin")
+		admin.POST("/auth/login", adminLoginLimiter.Middleware(), handlers.AdminLogin)
+		protectedAdmin := admin.Group("")
+		protectedAdmin.Use(middleware.RequireAdmin())
+		protectedAdmin.GET("/auth/me", handlers.AdminMe)
+		protectedAdmin.POST("/auth/change-password", handlers.ChangeAdminPassword)
+		protectedAdmin.GET("/users", middleware.RequireAdminRoles(models.AdminRoleSuperAdmin), handlers.ListAdmins)
+		protectedAdmin.POST("/users", middleware.RequireAdminRoles(models.AdminRoleSuperAdmin), handlers.CreateAdmin)
+		venueReviewRoles := middleware.RequireAdminRoles(models.AdminRoleSuperAdmin, models.AdminRoleOperations)
+		protectedAdmin.GET("/venues", venueReviewRoles, handlers.ListVenuesForAdmin)
+		protectedAdmin.POST("/venues/:id/approve", venueReviewRoles, handlers.ApproveVenue)
+
+		owner := v1.Group("/owner")
+		owner.POST("/auth/login", ownerLoginLimiter.Middleware(), handlers.OwnerLogin)
+		protectedOwner := owner.Group("")
+		protectedOwner.Use(middleware.RequireOwner())
+		protectedOwner.GET("/auth/me", handlers.OwnerMe)
+		protectedOwner.POST("/auth/change-password", handlers.ChangeOwnerPassword)
+		protectedOwner.POST("/bookings", handlers.CreateBooking)
 	}
 
 	router.NoRoute(func(c *gin.Context) {

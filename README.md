@@ -15,6 +15,8 @@ The first vertical slice is implemented:
 - `GET /v1/venues/:id/extras`
 - `POST /v1/waitlist`
 
+Interactive client/mobile documentation is served at `GET /docs`, with the raw OpenAPI 3.1 contract at `GET /openapi.yaml`. The spec contains no admin or owner routes and marks each operation as `live` or `planned`.
+
 Public handlers return dedicated DTOs. They never serialize GORM entities directly, which prevents owner IDs, platform fee rates, payout data, and internal metadata from leaking through public endpoints.
 
 The domain schema also establishes the tables needed for users, venues, bookings, split-payment shares, provider transactions, payouts, teams, matches, leagues, tournaments, promotions, notifications, reviews, and disputes.
@@ -62,3 +64,5 @@ The original HTML documents are preserved under [`docs/design`](docs/design):
 The Go delivery sequence and architecture decisions are in [`docs/BACKEND_PLAN.md`](docs/BACKEND_PLAN.md).
 
 Railway service configuration and reference variables are documented in [`docs/RAILWAY_DEPLOYMENT.md`](docs/RAILWAY_DEPLOYMENT.md).
+
+The mobile handoff is in [`docs/CLIENT_API.md`](docs/CLIENT_API.md), and private staff provisioning is in [`docs/ADMIN_AUTH.md`](docs/ADMIN_AUTH.md).

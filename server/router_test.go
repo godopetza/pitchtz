@@ -71,6 +71,25 @@ func TestHealth(t *testing.T) {
 	}
 }
 
+func TestClientOpenAPIExcludesPrivateSurfaces(t *testing.T) {
+	f := newFixture()
+	response := performRequest(newRouter(f), http.MethodGet, "/openapi.yaml", nil)
+	if response.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", response.Code, response.Body.String())
+	}
+	contract := response.Body.String()
+	for _, required := range []string{"/auth/otp/send:", "/bookings:", "/teams:", "/waitlist:"} {
+		if !strings.Contains(contract, required) {
+			t.Fatalf("mobile contract is missing %q", required)
+		}
+	}
+	for _, forbidden := range []string{"/admin/", "/owner/", "/webhooks/"} {
+		if strings.Contains(contract, forbidden) {
+			t.Fatalf("private surface %q leaked into the mobile contract", forbidden)
+		}
+	}
+}
+
 func TestPublicVenueExcludesPrivateFieldsAndPendingVenues(t *testing.T) {
 	f := newFixture()
 	router := newRouter(f)

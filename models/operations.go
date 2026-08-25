@@ -11,8 +11,42 @@ type AdminStaff struct {
 	Base
 	UserID       uuid.UUID      `gorm:"type:uuid;not null;uniqueIndex" json:"userId"`
 	Role         string         `gorm:"not null;index" json:"role"`
+	Status       string         `gorm:"not null;default:active;index" json:"status"`
 	Scopes       datatypes.JSON `gorm:"type:jsonb;not null;default:'[]'" json:"scopes"`
 	LastActiveAt *time.Time     `json:"lastActiveAt,omitempty"`
+}
+
+type AdminCredential struct {
+	UserID             uuid.UUID  `gorm:"type:uuid;primaryKey" json:"userId"`
+	PasswordHash       string     `gorm:"not null" json:"-"`
+	MustChangePassword bool       `gorm:"not null;default:true" json:"mustChangePassword"`
+	PasswordChangedAt  *time.Time `json:"passwordChangedAt,omitempty"`
+	FailedLoginCount   int        `gorm:"not null;default:0" json:"-"`
+	LockedUntil        *time.Time `json:"-"`
+	CreatedAt          time.Time  `json:"createdAt"`
+	UpdatedAt          time.Time  `json:"updatedAt"`
+}
+
+const (
+	AdminStatusActive   = "active"
+	AdminStatusDisabled = "disabled"
+
+	AdminRoleSuperAdmin = "super_admin"
+	AdminRoleOperations = "operations"
+	AdminRoleFinance    = "finance"
+	AdminRoleTrust      = "trust_safety"
+	AdminRoleSupport    = "support"
+	AdminRoleMarketing  = "marketing"
+	AdminRoleAnalyst    = "analyst"
+)
+
+func IsAdminRole(role string) bool {
+	switch role {
+	case AdminRoleSuperAdmin, AdminRoleOperations, AdminRoleFinance, AdminRoleTrust, AdminRoleSupport, AdminRoleMarketing, AdminRoleAnalyst:
+		return true
+	default:
+		return false
+	}
 }
 
 type VenuePayoutSetting struct {
