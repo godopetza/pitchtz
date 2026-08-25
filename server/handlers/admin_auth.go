@@ -130,11 +130,11 @@ func ListAdmins(c *gin.Context) {
 	}
 	var rows []row
 	err := initializers.DB.WithContext(c.Request.Context()).
-		Table("admin_staff").
-		Select("admin_staff.*, users.name, users.email, admin_credentials.must_change_password").
-		Joins("JOIN users ON users.id = admin_staff.user_id").
-		Joins("JOIN admin_credentials ON admin_credentials.user_id = admin_staff.user_id").
-		Order("admin_staff.created_at ASC").
+		Table("admin_staffs").
+		Select("admin_staffs.*, users.name, users.email, admin_credentials.must_change_password").
+		Joins("JOIN users ON users.id = admin_staffs.user_id").
+		Joins("JOIN admin_credentials ON admin_credentials.user_id = admin_staffs.user_id").
+		Order("admin_staffs.created_at ASC").
 		Scan(&rows).Error
 	if err != nil {
 		utils.RespondError(c, http.StatusInternalServerError, "ADMIN_LIST_FAILED", "could not load admins")
