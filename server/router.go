@@ -81,6 +81,8 @@ func NewRouterWithDeps(deps Deps) *gin.Engine {
 		v1.GET("/venues/:id/extras", publicAPI.ListVenueExtras)
 		v1.POST("/waitlist", waitlistLimiter.Middleware(), publicAPI.JoinWaitlist)
 		v1.POST("/venues/enroll", enrollLimiter.Middleware(), publicAPI.EnrollVenue)
+		// Public by necessity; authenticated by the Malipo HMAC signature.
+		v1.POST("/payments/callback", handlers.MalipoPaymentCallback)
 		v1.GET("/auth/google/callback", handlers.GoogleCallback)
 		v1.POST("/auth/apple/callback", handlers.AppleCallback)
 
@@ -111,6 +113,7 @@ func NewRouterWithDeps(deps Deps) *gin.Engine {
 		protectedOwner.GET("/auth/me", handlers.OwnerMe)
 		protectedOwner.POST("/auth/change-password", handlers.ChangeOwnerPassword)
 		protectedOwner.POST("/bookings", handlers.CreateBooking)
+		protectedOwner.POST("/bookings/:id/pay", handlers.RequestBookingPayment)
 	}
 
 	router.NoRoute(func(c *gin.Context) {
