@@ -3,7 +3,9 @@ package handlers
 import (
 	"encoding/json"
 	"errors"
+	"log"
 	"net/http"
+	"os"
 	"strings"
 	"time"
 
@@ -11,6 +13,7 @@ import (
 	"github.com/godopetza/pitchtz/initializers"
 	"github.com/godopetza/pitchtz/models"
 	"github.com/godopetza/pitchtz/server/middleware"
+	"github.com/godopetza/pitchtz/services"
 	"github.com/godopetza/pitchtz/utils"
 	"github.com/google/uuid"
 	"golang.org/x/crypto/bcrypt"
@@ -44,6 +47,8 @@ type adminDTO struct {
 	Scopes             []string   `json:"scopes"`
 	MustChangePassword bool       `json:"must_change_password"`
 	LastActiveAt       *time.Time `json:"last_active_at,omitempty"`
+	LastLoginProvider  string     `json:"last_login_provider,omitempty"`
+	LastLoginAt        *time.Time `json:"last_login_at,omitempty"`
 	CreatedAt          time.Time  `json:"created_at"`
 }
 
@@ -90,6 +95,9 @@ func AdminLogin(c *gin.Context) {
 	now := time.Now().UTC()
 	initializers.DB.Model(&models.AdminCredential{}).Where("user_id = ?", user.ID).Updates(map[string]interface{}{"failed_login_count": 0, "locked_until": nil})
 	initializers.DB.Model(&models.AdminStaff{}).Where("user_id = ?", user.ID).Update("last_active_at", now)
+	initializers.DB.Model(&models.User{}).Where("id = ?", user.ID).Updates(map[string]interface{}{"last_login_provider": "password", "last_login_at": now})
+	user.LastLoginProvider = "password"
+	user.LastLoginAt = &now
 	token, expiresAt, err := utils.IssueAdminToken(user.ID, staff.Role)
 	if err != nil {
 		utils.RespondError(c, http.StatusServiceUnavailable, "AUTH_NOT_CONFIGURED", "admin authentication is not configured")
@@ -126,12 +134,14 @@ func ListAdmins(c *gin.Context) {
 		models.AdminStaff
 		Name               string
 		Email              *string
+		LastLoginProvider  string
+		LastLoginAt        *time.Time
 		MustChangePassword bool
 	}
 	var rows []row
 	err := initializers.DB.WithContext(c.Request.Context()).
 		Table("admin_staffs").
-		Select("admin_staffs.*, users.name, users.email, admin_credentials.must_change_password").
+		Select("admin_staffs.*, users.name, users.email, users.last_login_provider, users.last_login_at, admin_credentials.must_change_password").
 		Joins("JOIN users ON users.id = admin_staffs.user_id").
 		Joins("JOIN admin_credentials ON admin_credentials.user_id = admin_staffs.user_id").
 		Order("admin_staffs.created_at ASC").
@@ -142,7 +152,7 @@ func ListAdmins(c *gin.Context) {
 	}
 	result := make([]adminDTO, 0, len(rows))
 	for _, row := range rows {
-		user := models.User{Base: models.Base{ID: row.UserID, CreatedAt: row.CreatedAt}, Name: row.Name, Email: row.Email}
+		user := models.User{Base: models.Base{ID: row.UserID, CreatedAt: row.CreatedAt}, Name: row.Name, Email: row.Email, LastLoginProvider: row.LastLoginProvider, LastLoginAt: row.LastLoginAt}
 		credential := models.AdminCredential{MustChangePassword: row.MustChangePassword}
 		result = append(result, toAdminDTO(user, row.AdminStaff, credential))
 	}
@@ -183,6 +193,13 @@ func CreateAdmin(c *gin.Context) {
 		}
 		utils.RespondError(c, http.StatusInternalServerError, "ADMIN_CREATE_FAILED", "could not create the admin")
 		return
+	}
+	portalURL := strings.TrimRight(strings.TrimSpace(os.Getenv("ADMIN_APP_URL")), "/")
+	if portalURL == "" {
+		portalURL = "http://localhost:3001"
+	}
+	if err := services.SendWelcomeAccess(c.Request.Context(), email, user.Name, input.Password, portalURL, "admin", "welcome-admin-"+user.ID.String()); err != nil {
+		log.Printf("admin welcome email failed for user %s: %v", user.ID, err)
 	}
 	utils.RespondSuccess(c, http.StatusCreated, toAdminDTO(user, staff, credential), "Admin created. Share the temporary password securely.")
 }
@@ -248,5 +265,5 @@ func toAdminDTO(user models.User, staff models.AdminStaff, credential models.Adm
 	}
 	scopes := make([]string, 0)
 	_ = json.Unmarshal(staff.Scopes, &scopes)
-	return adminDTO{ID: user.ID, Name: user.Name, Email: email, Role: staff.Role, Status: staff.Status, Scopes: scopes, MustChangePassword: credential.MustChangePassword, LastActiveAt: staff.LastActiveAt, CreatedAt: staff.CreatedAt}
+	return adminDTO{ID: user.ID, Name: user.Name, Email: email, Role: staff.Role, Status: staff.Status, Scopes: scopes, MustChangePassword: credential.MustChangePassword, LastActiveAt: staff.LastActiveAt, LastLoginProvider: user.LastLoginProvider, LastLoginAt: user.LastLoginAt, CreatedAt: staff.CreatedAt}
 }

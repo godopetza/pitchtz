@@ -9,17 +9,19 @@ import (
 
 type User struct {
 	Base
-	Phone           *string    `gorm:"uniqueIndex" json:"phone,omitempty"`
-	Email           *string    `gorm:"uniqueIndex" json:"email,omitempty"`
-	PhoneVerifiedAt *time.Time `json:"phoneVerifiedAt,omitempty"`
-	EmailVerifiedAt *time.Time `json:"emailVerifiedAt,omitempty"`
-	Name            string     `json:"name"`
-	AvatarURL       string     `json:"avatarUrl"`
-	AuthProvider    string     `gorm:"not null;default:phone" json:"authProvider"`
-	Language        string     `gorm:"not null;default:sw" json:"language"`
-	CityID          *uuid.UUID `gorm:"type:uuid;index" json:"cityId,omitempty"`
-	Role            string     `gorm:"not null;default:player;index" json:"role"`
-	FPLTeamID       *int64     `json:"fplTeamId,omitempty"`
+	Phone             *string    `gorm:"uniqueIndex" json:"phone,omitempty"`
+	Email             *string    `gorm:"uniqueIndex" json:"email,omitempty"`
+	PhoneVerifiedAt   *time.Time `json:"phoneVerifiedAt,omitempty"`
+	EmailVerifiedAt   *time.Time `json:"emailVerifiedAt,omitempty"`
+	Name              string     `json:"name"`
+	AvatarURL         string     `json:"avatarUrl"`
+	AuthProvider      string     `gorm:"not null;default:phone" json:"authProvider"`
+	LastLoginProvider string     `gorm:"not null;default:''" json:"lastLoginProvider,omitempty"`
+	LastLoginAt       *time.Time `json:"lastLoginAt,omitempty"`
+	Language          string     `gorm:"not null;default:sw" json:"language"`
+	CityID            *uuid.UUID `gorm:"type:uuid;index" json:"cityId,omitempty"`
+	Role              string     `gorm:"not null;default:player;index" json:"role"`
+	FPLTeamID         *int64     `json:"fplTeamId,omitempty"`
 }
 
 type City struct {

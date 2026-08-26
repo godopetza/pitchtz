@@ -31,6 +31,8 @@ type ownerDTO struct {
 	Status             string      `json:"status"`
 	MustChangePassword bool        `json:"must_change_password"`
 	Venues             []uuid.UUID `json:"venue_ids"`
+	LastLoginProvider  string      `json:"last_login_provider,omitempty"`
+	LastLoginAt        *time.Time  `json:"last_login_at,omitempty"`
 	CreatedAt          time.Time   `json:"created_at"`
 }
 
@@ -69,7 +71,11 @@ func OwnerLogin(c *gin.Context) {
 		return
 	}
 
+	now := time.Now().UTC()
 	initializers.DB.Model(&models.OwnerCredential{}).Where("user_id = ?", user.ID).Updates(map[string]interface{}{"failed_login_count": 0, "locked_until": nil})
+	initializers.DB.Model(&models.User{}).Where("id = ?", user.ID).Updates(map[string]interface{}{"last_login_provider": "password", "last_login_at": now})
+	user.LastLoginProvider = "password"
+	user.LastLoginAt = &now
 	token, expiresAt, err := utils.IssueOwnerToken(user.ID)
 	if err != nil {
 		utils.RespondError(c, http.StatusServiceUnavailable, "AUTH_NOT_CONFIGURED", "owner authentication is not configured")
@@ -161,6 +167,6 @@ func toOwnerDTO(c *gin.Context, user models.User, credential models.OwnerCredent
 	initializers.DB.WithContext(c.Request.Context()).Model(&models.Venue{}).Where("owner_id = ?", user.ID).Pluck("id", &venueIDs)
 	return ownerDTO{
 		ID: user.ID, Name: user.Name, Email: email, Status: credential.Status,
-		MustChangePassword: credential.MustChangePassword, Venues: venueIDs, CreatedAt: user.CreatedAt,
+		MustChangePassword: credential.MustChangePassword, Venues: venueIDs, LastLoginProvider: user.LastLoginProvider, LastLoginAt: user.LastLoginAt, CreatedAt: user.CreatedAt,
 	}
 }

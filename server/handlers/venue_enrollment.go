@@ -4,13 +4,16 @@ import (
 	"crypto/rand"
 	"encoding/base32"
 	"errors"
+	"log"
 	"net/http"
+	"os"
 	"strings"
 	"time"
 
 	"github.com/gin-gonic/gin"
 	"github.com/godopetza/pitchtz/initializers"
 	"github.com/godopetza/pitchtz/models"
+	"github.com/godopetza/pitchtz/services"
 	"github.com/godopetza/pitchtz/utils"
 	"github.com/google/uuid"
 	"golang.org/x/crypto/bcrypt"
@@ -184,6 +187,15 @@ func ApproveVenue(c *gin.Context) {
 	if temporaryPassword != "" {
 		response["temporary_password"] = temporaryPassword
 		message = "Venue approved. Share the temporary password with the owner securely."
+		if owner.Email != nil {
+			portalURL := strings.TrimRight(strings.TrimSpace(os.Getenv("OWNER_APP_URL")), "/")
+			if portalURL == "" {
+				portalURL = "http://localhost:3002"
+			}
+			if err := services.SendWelcomeAccess(c.Request.Context(), *owner.Email, owner.Name, temporaryPassword, portalURL, "owner", "welcome-owner-"+owner.ID.String()); err != nil {
+				log.Printf("owner welcome email failed for user %s: %v", owner.ID, err)
+			}
+		}
 	}
 	utils.RespondSuccess(c, http.StatusOK, response, message)
 }

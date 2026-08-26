@@ -46,6 +46,7 @@ func SyncDatabase() error {
 		&models.AdminStaff{},
 		&models.AdminCredential{},
 		&models.OwnerCredential{},
+		&models.PasswordResetToken{},
 		&models.VenuePayoutSetting{},
 		&models.Payout{},
 		&models.PayoutItem{},
