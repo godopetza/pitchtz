@@ -42,6 +42,7 @@ type adminDTO struct {
 	ID                 uuid.UUID  `json:"id"`
 	Name               string     `json:"name"`
 	Email              string     `json:"email"`
+	AvatarURL          string     `json:"avatar_url,omitempty"`
 	Role               string     `json:"role"`
 	Status             string     `json:"status"`
 	Scopes             []string   `json:"scopes"`
@@ -265,5 +266,5 @@ func toAdminDTO(user models.User, staff models.AdminStaff, credential models.Adm
 	}
 	scopes := make([]string, 0)
 	_ = json.Unmarshal(staff.Scopes, &scopes)
-	return adminDTO{ID: user.ID, Name: user.Name, Email: email, Role: staff.Role, Status: staff.Status, Scopes: scopes, MustChangePassword: credential.MustChangePassword, LastActiveAt: staff.LastActiveAt, LastLoginProvider: user.LastLoginProvider, LastLoginAt: user.LastLoginAt, CreatedAt: staff.CreatedAt}
+	return adminDTO{ID: user.ID, Name: user.Name, Email: email, AvatarURL: user.AvatarURL, Role: staff.Role, Status: staff.Status, Scopes: scopes, MustChangePassword: credential.MustChangePassword, LastActiveAt: staff.LastActiveAt, LastLoginProvider: user.LastLoginProvider, LastLoginAt: user.LastLoginAt, CreatedAt: staff.CreatedAt}
 }

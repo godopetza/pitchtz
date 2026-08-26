@@ -86,6 +86,33 @@ func CreateMalipoPayment(ctx context.Context, input MalipoPaymentRequest) (*Mali
 	return &payload.MalipoPayment, nil
 }
 
+// RecheckMalipoPayment asks Malipo to poll the provider for a payment's
+// current status (the reconciliation path when a callback goes missing).
+func RecheckMalipoPayment(ctx context.Context, paymentID string) (*MalipoPayment, error) {
+	if !MalipoConfigured() {
+		return nil, fmt.Errorf("malipo is not configured")
+	}
+	base := strings.TrimRight(strings.TrimSpace(os.Getenv("MALIPO_URL")), "/")
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, base+"/v1/payments/"+paymentID+"/recheck", nil)
+	if err != nil {
+		return nil, err
+	}
+	req.Header.Set("X-API-Key", strings.TrimSpace(os.Getenv("MALIPO_API_KEY")))
+	response, err := malipoHTTP.Do(req)
+	if err != nil {
+		return nil, err
+	}
+	defer response.Body.Close()
+	if response.StatusCode >= 300 {
+		return nil, fmt.Errorf("malipo recheck returned %d", response.StatusCode)
+	}
+	var payment MalipoPayment
+	if err := json.NewDecoder(response.Body).Decode(&payment); err != nil {
+		return nil, fmt.Errorf("malipo recheck response unreadable")
+	}
+	return &payment, nil
+}
+
 // MalipoCallback is the normalized envelope Malipo POSTs to our callback URL.
 type MalipoCallback struct {
 	Source        string            `json:"source"`

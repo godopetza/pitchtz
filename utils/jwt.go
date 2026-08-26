@@ -108,6 +108,54 @@ func ParseOwnerToken(raw string) (*OwnerClaims, error) {
 	return claims, nil
 }
 
+type ClientClaims struct {
+	jwt.RegisteredClaims
+}
+
+func IssueClientToken(userID uuid.UUID) (string, time.Time, error) {
+	secret, err := jwtSecret()
+	if err != nil {
+		return "", time.Time{}, err
+	}
+	now := time.Now().UTC()
+	expiresAt := now.Add(time.Duration(EnvInt("CLIENT_JWT_TTL_MINUTES", 43200)) * time.Minute) // 30 days
+	claims := ClientClaims{
+		RegisteredClaims: jwt.RegisteredClaims{
+			Issuer:    jwtIssuer(),
+			Subject:   userID.String(),
+			Audience:  jwt.ClaimStrings{"pitchtz-client"},
+			IssuedAt:  jwt.NewNumericDate(now),
+			NotBefore: jwt.NewNumericDate(now.Add(-5 * time.Second)),
+			ExpiresAt: jwt.NewNumericDate(expiresAt),
+			ID:        uuid.NewString(),
+		},
+	}
+	token := jwt.NewWithClaims(jwt.SigningMethodHS256, claims)
+	signed, err := token.SignedString(secret)
+	return signed, expiresAt, err
+}
+
+func ParseClientToken(raw string) (*ClientClaims, error) {
+	secret, err := jwtSecret()
+	if err != nil {
+		return nil, err
+	}
+	claims := &ClientClaims{}
+	token, err := jwt.ParseWithClaims(
+		raw,
+		claims,
+		func(token *jwt.Token) (interface{}, error) { return secret, nil },
+		jwt.WithValidMethods([]string{jwt.SigningMethodHS256.Alg()}),
+		jwt.WithIssuer(jwtIssuer()),
+		jwt.WithAudience("pitchtz-client"),
+		jwt.WithExpirationRequired(),
+	)
+	if err != nil || !token.Valid {
+		return nil, fmt.Errorf("invalid access token")
+	}
+	return claims, nil
+}
+
 func jwtSecret() ([]byte, error) {
 	secret := strings.TrimSpace(os.Getenv("JWT_SECRET"))
 	if len(secret) < 32 {

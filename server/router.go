@@ -66,6 +66,10 @@ func NewRouterWithDeps(deps Deps) *gin.Engine {
 		utils.EnvInt("ENROLL_RATE_LIMIT_PER_MIN", 5),
 		utils.EnvInt("ENROLL_RATE_LIMIT_BURST", 5),
 	)
+	clientAuthLimiter := middleware.NewIPRateLimiter(
+		utils.EnvInt("CLIENT_AUTH_RATE_LIMIT_PER_MIN", 10),
+		utils.EnvInt("CLIENT_AUTH_RATE_LIMIT_BURST", 10),
+	)
 
 	router.GET("/health", handlers.Health)
 	router.GET("/docs", SwaggerUI)
@@ -81,10 +85,35 @@ func NewRouterWithDeps(deps Deps) *gin.Engine {
 		v1.GET("/venues/:id/extras", publicAPI.ListVenueExtras)
 		v1.POST("/waitlist", waitlistLimiter.Middleware(), publicAPI.JoinWaitlist)
 		v1.POST("/venues/enroll", enrollLimiter.Middleware(), publicAPI.EnrollVenue)
+		v1.POST("/careers", enrollLimiter.Middleware(), handlers.SubmitCareerApplication)
 		// Public by necessity; authenticated by the Malipo HMAC signature.
 		v1.POST("/payments/callback", handlers.MalipoPaymentCallback)
 		v1.GET("/auth/google/callback", handlers.GoogleCallback)
 		v1.POST("/auth/apple/callback", handlers.AppleCallback)
+		v1.GET("/auth/google/start", handlers.ClientGoogleStart)
+		v1.GET("/auth/apple/start", handlers.ClientAppleStart)
+		v1.POST("/auth/email/start", clientAuthLimiter.Middleware(), handlers.ClientEmailStart)
+		v1.POST("/auth/email/verify", clientAuthLimiter.Middleware(), handlers.ClientEmailVerify)
+		clientAuthed := v1.Group("/auth")
+		clientAuthed.Use(middleware.RequireClient())
+		clientAuthed.GET("/me", handlers.ClientMe)
+		v1.POST("/venues/:id/reviews", middleware.RequireClient(), handlers.CreateVenueReview)
+
+		// Self-service bookings + payments (full, split, and QR pay links).
+		v1.POST("/bookings", middleware.RequireClient(), handlers.ClientCreateBooking)
+		v1.GET("/bookings", middleware.RequireClient(), handlers.ClientListBookings)
+		v1.GET("/bookings/:id", middleware.RequireClient(), handlers.ClientGetBooking)
+		v1.POST("/bookings/:id/pay", middleware.RequireClient(), handlers.ClientPayBooking)
+		v1.POST("/bookings/:id/split", middleware.RequireClient(), handlers.ClientSplitBooking)
+		// Public pay-a-share endpoints: the unguessable share id is the capability.
+		v1.GET("/pay/shares/:id", handlers.GetPublicShare)
+		v1.POST("/pay/shares/:id/pay", clientAuthLimiter.Middleware(), handlers.PayPublicShare)
+
+		// Shop: public storefront + customer orders.
+		v1.GET("/shop/products", handlers.ListShopProducts)
+		v1.POST("/shop/orders", middleware.RequireClient(), handlers.CreateShopOrder)
+		v1.GET("/shop/orders/:id", middleware.RequireClient(), handlers.GetShopOrder)
+		v1.POST("/shop/orders/:id/pay", middleware.RequireClient(), handlers.PayShopOrder)
 
 		admin := v1.Group("/admin")
 		admin.POST("/auth/login", adminLoginLimiter.Middleware(), handlers.AdminLogin)
@@ -97,10 +126,23 @@ func NewRouterWithDeps(deps Deps) *gin.Engine {
 		protectedAdmin.GET("/auth/me", handlers.AdminMe)
 		protectedAdmin.POST("/auth/change-password", handlers.ChangeAdminPassword)
 		protectedAdmin.GET("/users", middleware.RequireAdminRoles(models.AdminRoleSuperAdmin), handlers.ListAdmins)
+		protectedAdmin.GET("/careers", middleware.RequireAdminRoles(models.AdminRoleSuperAdmin, models.AdminRoleOperations), handlers.AdminListCareerApplications)
 		protectedAdmin.POST("/users", middleware.RequireAdminRoles(models.AdminRoleSuperAdmin), handlers.CreateAdmin)
 		venueReviewRoles := middleware.RequireAdminRoles(models.AdminRoleSuperAdmin, models.AdminRoleOperations)
 		protectedAdmin.GET("/venues", venueReviewRoles, handlers.ListVenuesForAdmin)
 		protectedAdmin.POST("/venues/:id/approve", venueReviewRoles, handlers.ApproveVenue)
+		protectedAdmin.PATCH("/venues/:id/status", venueReviewRoles, handlers.AdminSetVenueStatus)
+		protectedAdmin.DELETE("/venues/:id", middleware.RequireAdminRoles(models.AdminRoleSuperAdmin), handlers.AdminDeleteVenue)
+		protectedAdmin.GET("/stats", handlers.AdminPlatformStats)
+		protectedAdmin.GET("/bookings", handlers.AdminListBookings)
+		protectedAdmin.GET("/disputes", handlers.AdminListDisputes)
+		protectedAdmin.GET("/audit", middleware.RequireAdminRoles(models.AdminRoleSuperAdmin), handlers.AdminListAudit)
+		shopAdmin := middleware.RequireAdminRoles(models.AdminRoleSuperAdmin)
+		protectedAdmin.GET("/shop/products", shopAdmin, handlers.AdminListShopProducts)
+		protectedAdmin.POST("/shop/products", shopAdmin, handlers.AdminCreateShopProduct)
+		protectedAdmin.PATCH("/shop/products/:id", shopAdmin, handlers.AdminUpdateShopProduct)
+		protectedAdmin.GET("/shop/orders", shopAdmin, handlers.AdminListShopOrders)
+		protectedAdmin.POST("/shop/orders/:id/fulfill", shopAdmin, handlers.AdminFulfillShopOrder)
 
 		owner := v1.Group("/owner")
 		owner.POST("/auth/login", ownerLoginLimiter.Middleware(), handlers.OwnerLogin)
@@ -114,6 +156,8 @@ func NewRouterWithDeps(deps Deps) *gin.Engine {
 		protectedOwner.POST("/auth/change-password", handlers.ChangeOwnerPassword)
 		protectedOwner.POST("/bookings", handlers.CreateBooking)
 		protectedOwner.POST("/bookings/:id/pay", handlers.RequestBookingPayment)
+		protectedOwner.POST("/reviews/:id/reply", handlers.OwnerReplyToReview)
+		protectedOwner.GET("/venues", handlers.OwnerListVenues)
 	}
 
 	router.NoRoute(func(c *gin.Context) {

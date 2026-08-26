@@ -22,6 +22,7 @@ type User struct {
 	CityID            *uuid.UUID `gorm:"type:uuid;index" json:"cityId,omitempty"`
 	Role              string     `gorm:"not null;default:player;index" json:"role"`
 	FPLTeamID         *int64     `json:"fplTeamId,omitempty"`
+	WhatsAppOptIn     bool       `gorm:"not null;default:false" json:"whatsappOptIn"`
 }
 
 type City struct {

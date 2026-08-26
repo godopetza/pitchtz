@@ -122,7 +122,13 @@ func (s *GormStore) ListUnavailable(ctx context.Context, venueID uuid.UUID, from
 
 	result := make([]UnavailableWindow, 0, len(bookings)+len(blocks))
 	for _, booking := range bookings {
-		result = append(result, UnavailableWindow{PitchID: booking.PitchID, StartsAt: booking.StartsAt, EndsAt: booking.EndsAt, Kind: "booked"})
+		// A pending booking is a payment hold: still blocking, but shown as
+		// "processing" so every platform can render it distinctly (orange).
+		kind := "booked"
+		if booking.Status == models.BookingStatusPending {
+			kind = "processing"
+		}
+		result = append(result, UnavailableWindow{PitchID: booking.PitchID, StartsAt: booking.StartsAt, EndsAt: booking.EndsAt, Kind: kind})
 	}
 	for _, block := range blocks {
 		result = append(result, UnavailableWindow{PitchID: block.PitchID, StartsAt: block.StartsAt, EndsAt: block.EndsAt, Kind: "blocked"})

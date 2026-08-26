@@ -6,6 +6,7 @@ import (
 
 	"github.com/godopetza/pitchtz/initializers"
 	"github.com/godopetza/pitchtz/server"
+	"github.com/godopetza/pitchtz/services"
 )
 
 func main() {
@@ -34,6 +35,8 @@ func main() {
 	} else {
 		log.Print("DB and DATABASE_URL are not set; using the in-memory store")
 	}
+
+	services.StartHoldSweeper()
 
 	router := server.NewRouter()
 	port := os.Getenv("PORT")

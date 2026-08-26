@@ -47,3 +47,29 @@ func NormalizeTZPhone(value string) (string, error) {
 	}
 	return "+255" + digits, nil
 }
+
+// NormalizeIntlPhone accepts any international MSISDN (digits with optional
+// leading +): 8-15 digits per E.164. Tanzanian numbers still get the strict
+// TZ normalization so local formats (07XX…) keep working.
+func NormalizeIntlPhone(value string) (string, error) {
+	trimmed := strings.TrimSpace(value)
+	if normalized, err := NormalizeTZPhone(trimmed); err == nil {
+		return normalized, nil
+	}
+	var builder strings.Builder
+	for index, character := range trimmed {
+		switch {
+		case character >= '0' && character <= '9':
+			builder.WriteRune(character)
+		case character == '+' && index == 0:
+		case character == ' ' || character == '-' || character == '(' || character == ')':
+		default:
+			return "", ErrInvalidContact
+		}
+	}
+	digits := builder.String()
+	if len(digits) < 8 || len(digits) > 15 {
+		return "", ErrInvalidContact
+	}
+	return digits, nil
+}

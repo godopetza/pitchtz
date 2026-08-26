@@ -15,7 +15,6 @@ import (
 	"github.com/godopetza/pitchtz/services"
 	"github.com/godopetza/pitchtz/utils"
 	"github.com/google/uuid"
-	"gorm.io/gorm"
 )
 
 type requestPaymentInput struct {
@@ -79,35 +78,54 @@ func RequestBookingPayment(c *gin.Context) {
 		Kind:       "gateway",
 		Status:     "unpaid",
 	}
-	transaction := models.PaymentTransaction{
-		Provider:  input.Provider,
-		AmountTZS: amount,
-		Direction: "charge",
-		Status:    "initiated",
+	if err := initializers.DB.WithContext(c.Request.Context()).Create(&share).Error; err != nil {
+		utils.RespondError(c, http.StatusInternalServerError, "PAYMENT_INIT_FAILED", "could not start the payment")
+		return
 	}
+	chargeShareViaMalipo(c, booking, share, input.Provider, input.Phone, input.Operator)
+}
 
-	// Reference is stable per share, so a retry hits Malipo's idempotency.
-	err := initializers.DB.WithContext(c.Request.Context()).Transaction(func(tx *gorm.DB) error {
-		if err := tx.Create(&share).Error; err != nil {
-			return err
-		}
-		transaction.ShareID = share.ID
-		transaction.IdempotencyKey = fmt.Sprintf("pitchtz-share-%s", share.ID)
-		return tx.Create(&transaction).Error
-	})
-	if err != nil {
+// chargeShareViaMalipo starts (or retries) collection of one share: records
+// the attempt as a PaymentTransaction and asks Malipo to prompt the payer's
+// phone. The first attempt reuses the share id as reference (Malipo-side
+// idempotency); later retries get an -rN suffix so a failed prompt can be
+// retried with a fresh Malipo payment.
+func chargeShareViaMalipo(c *gin.Context, booking models.Booking, share models.PaymentShare, provider, phone, operator string) {
+	var attempts int64
+	initializers.DB.WithContext(c.Request.Context()).Model(&models.PaymentTransaction{}).
+		Where("share_id = ?", share.ID).Count(&attempts)
+	var pending int64
+	initializers.DB.WithContext(c.Request.Context()).Model(&models.PaymentTransaction{}).
+		Where("share_id = ? AND status IN ?", share.ID, []string{"pending", "completed"}).Count(&pending)
+	if pending > 0 {
+		utils.RespondError(c, http.StatusConflict, "PAYMENT_IN_PROGRESS", "a payment for this share is already pending or completed")
+		return
+	}
+	reference := fmt.Sprintf("pitchtz-share-%s", share.ID)
+	if attempts > 0 {
+		reference = fmt.Sprintf("pitchtz-share-%s-r%d", share.ID, attempts+1)
+	}
+	transaction := models.PaymentTransaction{
+		ShareID:        share.ID,
+		Provider:       provider,
+		IdempotencyKey: reference,
+		AmountTZS:      share.AmountTZS,
+		Direction:      "charge",
+		Status:         "initiated",
+	}
+	if err := initializers.DB.WithContext(c.Request.Context()).Create(&transaction).Error; err != nil {
 		utils.RespondError(c, http.StatusInternalServerError, "PAYMENT_INIT_FAILED", "could not start the payment")
 		return
 	}
 
 	payment, err := services.CreateMalipoPayment(c.Request.Context(), services.MalipoPaymentRequest{
-		Provider:    input.Provider,
-		Amount:      amount,
+		Provider:    provider,
+		Amount:      share.AmountTZS,
 		Currency:    "TZS",
-		Reference:   transaction.IdempotencyKey,
+		Reference:   reference,
 		Description: fmt.Sprintf("PitchTZ booking %s", booking.Code),
-		Phone:       strings.TrimSpace(input.Phone),
-		Operator:    strings.TrimSpace(input.Operator),
+		Phone:       strings.TrimSpace(phone),
+		Operator:    strings.TrimSpace(operator),
 		Metadata: map[string]string{
 			"bookingId":   booking.ID.String(),
 			"bookingCode": booking.Code,
@@ -122,15 +140,72 @@ func RequestBookingPayment(c *gin.Context) {
 
 	initializers.DB.Model(&models.PaymentTransaction{}).Where("id = ?", transaction.ID).
 		Updates(map[string]interface{}{"provider_ref": payment.ID, "status": "pending"})
+	if strings.TrimSpace(phone) != "" {
+		initializers.DB.Model(&models.PaymentShare{}).Where("id = ?", share.ID).Update("payer_phone", strings.TrimSpace(phone))
+	}
 
 	utils.RespondSuccess(c, http.StatusAccepted, gin.H{
 		"share_id":     share.ID,
-		"reference":    transaction.IdempotencyKey,
-		"amount_tzs":   amount,
+		"reference":    reference,
+		"amount_tzs":   share.AmountTZS,
 		"payment_id":   payment.ID,
 		"status":       payment.Status,
 		"checkout_url": payment.CheckoutURL,
-	}, "Payment requested. The booking confirms once Malipo reports settlement.")
+	}, "Payment requested. Confirm the prompt on the payer's phone.")
+}
+
+// payShopOrderViaMalipo starts collection for a shop order. Each attempt gets
+// a unique reference; the order's pending-status check is the double-pay guard.
+func payShopOrderViaMalipo(c *gin.Context, order models.ShopOrder, input clientPayInput) {
+	reference := fmt.Sprintf("pitchtz-order-%s-%d", order.ID, time.Now().Unix())
+	payment, err := services.CreateMalipoPayment(c.Request.Context(), services.MalipoPaymentRequest{
+		Provider:    input.Provider,
+		Amount:      order.TotalTZS,
+		Currency:    "TZS",
+		Reference:   reference,
+		Description: fmt.Sprintf("PitchTZ shop %s", order.Code),
+		Phone:       strings.TrimSpace(input.Phone),
+		Operator:    strings.TrimSpace(input.Operator),
+		Metadata:    map[string]string{"orderId": order.ID.String(), "orderCode": order.Code},
+	})
+	if err != nil {
+		utils.RespondError(c, http.StatusBadGateway, "PAYMENT_GATEWAY_ERROR", err.Error())
+		return
+	}
+	initializers.DB.WithContext(c.Request.Context()).Model(&models.ShopOrder{}).
+		Where("id = ?", order.ID).Update("phone", strings.TrimSpace(input.Phone))
+	utils.RespondSuccess(c, http.StatusAccepted, gin.H{
+		"order_id":   order.ID,
+		"reference":  reference,
+		"amount_tzs": order.TotalTZS,
+		"payment_id": payment.ID,
+		"status":     payment.Status,
+	}, "Payment requested. Confirm the prompt on your phone.")
+}
+
+// applyShopOrderCallback settles shop-order references
+// ("pitchtz-order-<uuid>-<ts>"). Returns true when the reference was ours.
+func applyShopOrderCallback(c *gin.Context, callback services.MalipoCallback) bool {
+	if !strings.HasPrefix(callback.Reference, "pitchtz-order-") {
+		return false
+	}
+	raw := strings.TrimPrefix(callback.Reference, "pitchtz-order-")
+	if len(raw) < 36 {
+		return true
+	}
+	orderID, err := uuid.Parse(raw[:36])
+	if err != nil {
+		return true
+	}
+	settled := strings.EqualFold(callback.Status, "completed") || strings.EqualFold(callback.Status, "succeeded")
+	if !settled {
+		return true
+	}
+	now := time.Now().UTC()
+	initializers.DB.WithContext(c.Request.Context()).Model(&models.ShopOrder{}).
+		Where("id = ? AND status = ?", orderID, models.ShopOrderStatusPending).
+		Updates(map[string]interface{}{"status": models.ShopOrderStatusPaid, "paid_at": now})
+	return true
 }
 
 // MalipoPaymentCallback receives Malipo's signed settlement notifications and
@@ -157,6 +232,11 @@ func MalipoPaymentCallback(c *gin.Context) {
 		return
 	}
 
+	if applyShopOrderCallback(c, callback) {
+		utils.RespondSuccess(c, http.StatusOK, gin.H{"applied": true, "kind": "shop_order"}, "")
+		return
+	}
+
 	var transaction models.PaymentTransaction
 	if err := initializers.DB.WithContext(c.Request.Context()).
 		First(&transaction, "idempotency_key = ?", callback.Reference).Error; err != nil {
@@ -166,45 +246,8 @@ func MalipoPaymentCallback(c *gin.Context) {
 		return
 	}
 
-	now := time.Now().UTC()
 	settled := strings.EqualFold(callback.Status, "completed") || strings.EqualFold(callback.Status, "succeeded")
-
-	err = initializers.DB.WithContext(c.Request.Context()).Transaction(func(tx *gorm.DB) error {
-		status := "failed"
-		if settled {
-			status = "completed"
-		}
-		if err := tx.Model(&models.PaymentTransaction{}).Where("id = ?", transaction.ID).
-			Updates(map[string]interface{}{"status": status, "webhook_at": now, "provider_ref": callback.PaymentID}).Error; err != nil {
-			return err
-		}
-		if !settled {
-			return nil
-		}
-		if err := tx.Model(&models.PaymentShare{}).Where("id = ?", transaction.ShareID).
-			Updates(map[string]interface{}{"status": "paid", "paid_at": now}).Error; err != nil {
-			return err
-		}
-
-		var share models.PaymentShare
-		if err := tx.First(&share, "id = ?", transaction.ShareID).Error; err != nil {
-			return err
-		}
-		// Confirm the booking once its paid shares cover the total.
-		var paidTotal int64
-		tx.Model(&models.PaymentShare{}).Where("booking_id = ? AND status = ?", share.BookingID, "paid").
-			Select("COALESCE(SUM(amount_tzs), 0)").Scan(&paidTotal)
-
-		var booking models.Booking
-		if err := tx.First(&booking, "id = ?", share.BookingID).Error; err != nil {
-			return err
-		}
-		next := models.BookingStatusPartPaid
-		if paidTotal >= booking.TotalTZS {
-			next = models.BookingStatusConfirmed
-		}
-		return tx.Model(&models.Booking{}).Where("id = ?", booking.ID).Update("status", next).Error
-	})
+	err = services.SettleShareTransaction(c.Request.Context(), transaction, settled, callback.PaymentID)
 	if err != nil {
 		utils.RespondError(c, http.StatusInternalServerError, "CALLBACK_APPLY_FAILED", "could not apply the callback")
 		return

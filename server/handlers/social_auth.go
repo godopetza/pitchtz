@@ -24,6 +24,8 @@ import (
 	"github.com/godopetza/pitchtz/models"
 	"github.com/godopetza/pitchtz/utils"
 	"github.com/golang-jwt/jwt/v5"
+	"github.com/google/uuid"
+	"golang.org/x/crypto/bcrypt"
 )
 
 type socialState struct {
@@ -40,6 +42,17 @@ type googleTokenResponse struct {
 type googleUserInfo struct {
 	Email         string `json:"email"`
 	EmailVerified bool   `json:"email_verified"`
+	Name          string `json:"name"`
+	Picture       string `json:"picture"`
+}
+
+// appleUserPayload is Apple's optional "user" form field, present ONLY on the
+// very first authorization for a given app — Apple never sends a picture.
+type appleUserPayload struct {
+	Name struct {
+		FirstName string `json:"firstName"`
+		LastName  string `json:"lastName"`
+	} `json:"name"`
 }
 
 type appleKey struct {
@@ -131,7 +144,7 @@ func GoogleCallback(c *gin.Context) {
 		redirectSocialError(c, state.Audience, "email_not_verified")
 		return
 	}
-	finishExistingSocialLogin(c, state.Audience, profile.Email, "google")
+	finishExistingSocialLogin(c, state.Audience, profile.Email, "google", profile.Name, profile.Picture)
 }
 
 func startApple(c *gin.Context, audience string) {
@@ -169,24 +182,44 @@ func AppleCallback(c *gin.Context) {
 		redirectSocialError(c, state.Audience, "social_sign_in_failed")
 		return
 	}
-	finishExistingSocialLogin(c, state.Audience, email, "apple")
+	name := ""
+	if raw := c.PostForm("user"); raw != "" {
+		var payload appleUserPayload
+		if json.Unmarshal([]byte(raw), &payload) == nil {
+			name = strings.TrimSpace(payload.Name.FirstName + " " + payload.Name.LastName)
+		}
+	}
+	finishExistingSocialLogin(c, state.Audience, email, "apple", name, "")
 }
 
-func finishExistingSocialLogin(c *gin.Context, audience, email, provider string) {
+func finishExistingSocialLogin(c *gin.Context, audience, email, provider, name, avatarURL string) {
 	if initializers.DB == nil {
 		redirectSocialError(c, audience, "database_unavailable")
 		return
 	}
 	email = strings.ToLower(strings.TrimSpace(email))
-	var user models.User
-	if initializers.DB.WithContext(c.Request.Context()).Where("LOWER(email) = ?", email).First(&user).Error != nil || user.Email == nil {
-		redirectSocialError(c, audience, "account_not_provisioned")
+	if email == "" {
+		redirectSocialError(c, audience, "email_not_verified")
 		return
 	}
+
+	if audience == models.PasswordResetAudienceClient {
+		finishClientSocialLogin(c, email, provider, name, avatarURL)
+		return
+	}
+
+	var user models.User
+	userMissing := initializers.DB.WithContext(c.Request.Context()).Where("LOWER(email) = ?", email).First(&user).Error != nil
 
 	var token string
 	var err error
 	if audience == models.PasswordResetAudienceAdmin {
+		// Admin stays invite-only: an unknown Google/Apple identity gets no
+		// account here.
+		if userMissing || user.Email == nil {
+			redirectSocialError(c, audience, "account_not_provisioned")
+			return
+		}
 		var staff models.AdminStaff
 		if initializers.DB.WithContext(c.Request.Context()).First(&staff, "user_id = ? AND status = ?", user.ID, models.AdminStatusActive).Error != nil {
 			redirectSocialError(c, audience, "account_not_provisioned")
@@ -194,8 +227,39 @@ func finishExistingSocialLogin(c *gin.Context, audience, email, provider string)
 		}
 		token, _, err = utils.IssueAdminToken(user.ID, staff.Role)
 	} else {
+		// Owner is open onboarding: Google/Apple verified the email, so let
+		// them in and collect venue details inside. The real marketplace gate
+		// stays venue approval, not account creation.
+		now := time.Now().UTC()
+		if userMissing {
+			displayName := strings.TrimSpace(name)
+			if displayName == "" {
+				displayName = strings.Split(email, "@")[0]
+			}
+			user = models.User{Email: &email, Name: displayName, AvatarURL: avatarURL, AuthProvider: provider, Language: "sw", Role: "owner", EmailVerifiedAt: &now}
+			if createErr := initializers.DB.WithContext(c.Request.Context()).Create(&user).Error; createErr != nil {
+				if refetchErr := initializers.DB.WithContext(c.Request.Context()).Where("LOWER(email) = ?", email).First(&user).Error; refetchErr != nil {
+					redirectSocialError(c, audience, "account_lookup_failed")
+					return
+				}
+			}
+		}
 		var credential models.OwnerCredential
-		if initializers.DB.WithContext(c.Request.Context()).First(&credential, "user_id = ? AND status = ?", user.ID, models.OwnerStatusActive).Error != nil {
+		if initializers.DB.WithContext(c.Request.Context()).First(&credential, "user_id = ?", user.ID).Error != nil {
+			// First social sign-in (or an enrolled-but-unapproved owner):
+			// mint a credential with an unusable password — social is their way in.
+			randomSecret := uuid.NewString() + uuid.NewString()
+			hash, hashErr := bcrypt.GenerateFromPassword([]byte(randomSecret), bcrypt.DefaultCost)
+			if hashErr != nil {
+				redirectSocialError(c, audience, "auth_not_configured")
+				return
+			}
+			credential = models.OwnerCredential{UserID: user.ID, Status: models.OwnerStatusActive, PasswordHash: string(hash), MustChangePassword: false}
+			if createErr := initializers.DB.WithContext(c.Request.Context()).Create(&credential).Error; createErr != nil {
+				initializers.DB.WithContext(c.Request.Context()).First(&credential, "user_id = ?", user.ID)
+			}
+		}
+		if credential.Status != models.OwnerStatusActive {
 			redirectSocialError(c, audience, "account_not_provisioned")
 			return
 		}
@@ -206,11 +270,59 @@ func finishExistingSocialLogin(c *gin.Context, audience, email, provider string)
 		return
 	}
 	now := time.Now().UTC()
-	initializers.DB.WithContext(c.Request.Context()).Model(&models.User{}).Where("id = ?", user.ID).Updates(map[string]interface{}{"last_login_provider": provider, "last_login_at": now})
+	updates := map[string]interface{}{"last_login_provider": provider, "last_login_at": now}
+	if strings.TrimSpace(name) != "" {
+		updates["name"] = strings.TrimSpace(name)
+	}
+	if strings.TrimSpace(avatarURL) != "" {
+		updates["avatar_url"] = strings.TrimSpace(avatarURL)
+	}
+	initializers.DB.WithContext(c.Request.Context()).Model(&models.User{}).Where("id = ?", user.ID).Updates(updates)
 	if audience == models.PasswordResetAudienceAdmin {
 		initializers.DB.WithContext(c.Request.Context()).Model(&models.AdminStaff{}).Where("user_id = ?", user.ID).Update("last_active_at", now)
 	}
 	c.Redirect(http.StatusFound, portalURL(audience)+"/#oauth_token="+url.QueryEscape(token))
+}
+
+// finishClientSocialLogin is the customer-facing counterpart: unlike
+// owner/admin, there is no pre-provisioning step. Google/Apple already
+// verified the email, so a first-time sign-in just creates the account.
+func finishClientSocialLogin(c *gin.Context, email, provider, name, avatarURL string) {
+	var user models.User
+	err := initializers.DB.WithContext(c.Request.Context()).Where("LOWER(email) = ?", email).First(&user).Error
+	now := time.Now().UTC()
+	displayName := strings.TrimSpace(name)
+	if displayName == "" {
+		displayName = strings.Split(email, "@")[0]
+	}
+	if err != nil {
+		user = models.User{Email: &email, Name: displayName, AvatarURL: avatarURL, AuthProvider: provider, Language: "sw", Role: "player", EmailVerifiedAt: &now}
+		if createErr := initializers.DB.WithContext(c.Request.Context()).Create(&user).Error; createErr != nil {
+			if refetchErr := initializers.DB.WithContext(c.Request.Context()).Where("LOWER(email) = ?", email).First(&user).Error; refetchErr != nil {
+				redirectSocialError(c, models.PasswordResetAudienceClient, "account_lookup_failed")
+				return
+			}
+		}
+	}
+	token, _, err := utils.IssueClientToken(user.ID)
+	if err != nil {
+		redirectSocialError(c, models.PasswordResetAudienceClient, "auth_not_configured")
+		return
+	}
+	updates := map[string]interface{}{"last_login_provider": provider, "last_login_at": now}
+	if user.EmailVerifiedAt == nil {
+		updates["email_verified_at"] = now
+	}
+	// Apple only sends a name on the very first authorization, and never sends
+	// a picture — never overwrite a known-good name/avatar with a blank one.
+	if strings.TrimSpace(name) != "" {
+		updates["name"] = strings.TrimSpace(name)
+	}
+	if strings.TrimSpace(avatarURL) != "" {
+		updates["avatar_url"] = strings.TrimSpace(avatarURL)
+	}
+	initializers.DB.WithContext(c.Request.Context()).Model(&models.User{}).Where("id = ?", user.ID).Updates(updates)
+	c.Redirect(http.StatusFound, portalURL(models.PasswordResetAudienceClient)+"/#oauth_token="+url.QueryEscape(token))
 }
 
 func issueSocialState(audience, provider string) (string, error) {
@@ -252,7 +364,7 @@ func verifySocialState(value, provider string) (socialState, error) {
 	if err != nil || json.Unmarshal(payload, &state) != nil || state.Provider != provider || state.Expires < time.Now().Unix() {
 		return socialState{}, errors.New("invalid or expired state")
 	}
-	if state.Audience != models.PasswordResetAudienceAdmin && state.Audience != models.PasswordResetAudienceOwner {
+	if state.Audience != models.PasswordResetAudienceAdmin && state.Audience != models.PasswordResetAudienceOwner && state.Audience != models.PasswordResetAudienceClient {
 		return socialState{}, errors.New("invalid audience")
 	}
 	return state, nil
@@ -343,9 +455,13 @@ func publicAPIURL(c *gin.Context) string {
 func portalURL(audience string) string {
 	key := "OWNER_APP_URL"
 	fallback := "http://localhost:3002"
-	if audience == models.PasswordResetAudienceAdmin {
+	switch audience {
+	case models.PasswordResetAudienceAdmin:
 		key = "ADMIN_APP_URL"
 		fallback = "http://localhost:3001"
+	case models.PasswordResetAudienceClient:
+		key = "CLIENT_APP_URL"
+		fallback = "http://localhost:3000"
 	}
 	if value := strings.TrimRight(strings.TrimSpace(os.Getenv(key)), "/"); value != "" {
 		return value
@@ -354,7 +470,7 @@ func portalURL(audience string) string {
 }
 
 func redirectSocialError(c *gin.Context, audience, code string) {
-	if audience != models.PasswordResetAudienceAdmin && audience != models.PasswordResetAudienceOwner {
+	if audience != models.PasswordResetAudienceAdmin && audience != models.PasswordResetAudienceOwner && audience != models.PasswordResetAudienceClient {
 		audience = models.PasswordResetAudienceOwner
 	}
 	c.Redirect(http.StatusFound, portalURL(audience)+"/?oauth_error="+url.QueryEscape(code)+"&t="+strconv.FormatInt(time.Now().Unix(), 10))

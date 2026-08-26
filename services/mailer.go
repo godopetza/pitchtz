@@ -108,6 +108,29 @@ func SendPasswordReset(ctx context.Context, to, name, resetURL, audience, idempo
 	return sendResend(ctx, payload, idempotencyKey)
 }
 
+// SendEmailVerificationCode delivers the 6-digit sign-in code for the client
+// app. There is no reset link here — the code itself, typed back into the
+// app, is the credential.
+func SendEmailVerificationCode(ctx context.Context, to, name, code, idempotencyKey string) error {
+	if strings.TrimSpace(name) == "" {
+		name = "there"
+	}
+	codeBoxes := fmt.Sprintf(`<table role="presentation" cellpadding="0" cellspacing="0" style="margin:6px 0 4px"><tr><td style="font-family:'Courier New',monospace;font-size:34px;font-weight:800;letter-spacing:10px;color:#0e3b2c;background:#f5f7f1;border:1px solid #dce3d6;border-radius:14px;padding:16px 22px">%s</td></tr></table>`, html.EscapeString(code))
+	body := fmt.Sprintf(`<p style="margin:0 0 14px">Hello <strong style="color:#17201a">%s</strong>, use this code to sign in to PitchTZ.</p>%s<p style="margin:14px 0 0">Namba hii inatumika kwa dakika 10 pekee.</p>`, html.EscapeString(name), codeBoxes)
+	payload := resendEmail{To: []string{to}, Subject: "Your PitchTZ sign-in code: " + code,
+		Text: fmt.Sprintf("Hello %s,\n\nYour PitchTZ sign-in code is: %s\n\nThis code expires in 10 minutes. If you did not request it, ignore this email.\n\nBen\nMaker of PitchTZ", name, code),
+		HTML: renderPitchTZEmail(brandedEmail{Preheader: "Your PitchTZ sign-in code: " + code, Eyebrow: "Sign-in code", Title: "Enter this code to continue.", BodyHTML: body, ActionLabel: "Open PitchTZ", ActionURL: clientAppURL(), Footnote: "This code expires in 10 minutes and works once. If you did not request it, you can safely ignore this email.", HeroURL: emailHeroURL()}),
+	}
+	return sendResend(ctx, payload, idempotencyKey)
+}
+
+func clientAppURL() string {
+	if value := strings.TrimSpace(os.Getenv("CLIENT_APP_URL")); value != "" {
+		return value
+	}
+	return "http://localhost:3000"
+}
+
 // SendWelcomeAccess welcomes a provisioned owner or staff member. These are
 // invited accounts only; the temporary password must be changed after login.
 func SendWelcomeAccess(ctx context.Context, to, name, temporaryPassword, portalURL, audience, idempotencyKey string) error {

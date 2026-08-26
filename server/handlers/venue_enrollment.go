@@ -22,12 +22,16 @@ import (
 )
 
 type enrollVenueInput struct {
-	VenueName  string `json:"venue_name" binding:"required,min=2,max=120"`
-	Area       string `json:"area" binding:"required,min=2,max=120"`
-	CityID     string `json:"city_id" binding:"required"`
-	OwnerName  string `json:"owner_name" binding:"required,min=2,max=120"`
-	OwnerEmail string `json:"owner_email" binding:"required,email,max=254"`
-	OwnerPhone string `json:"owner_phone" binding:"required,max=32"`
+	VenueName  string   `json:"venue_name" binding:"required,min=2,max=120"`
+	Area       string   `json:"area" binding:"required,min=2,max=120"`
+	CityID     string   `json:"city_id" binding:"required"`
+	OwnerName  string   `json:"owner_name" binding:"required,min=2,max=120"`
+	OwnerEmail string   `json:"owner_email" binding:"required,email,max=254"`
+	OwnerPhone string   `json:"owner_phone" binding:"required,max=32"`
+	Latitude   float64  `json:"latitude"`
+	Longitude  float64  `json:"longitude"`
+	PhotoKeys  []string `json:"photo_keys" binding:"max=10,dive,max=200"`
+	WhatsApp   bool     `json:"whatsapp"`
 }
 
 // EnrollVenue is the public "list your venue" application. It does not grant
@@ -53,7 +57,7 @@ func (h *PublicAPI) EnrollVenue(c *gin.Context) {
 		utils.RespondError(c, http.StatusBadRequest, "INVALID_EMAIL", "owner_email is invalid")
 		return
 	}
-	phone, err := utils.NormalizeTZPhone(input.OwnerPhone)
+	phone, err := utils.NormalizeIntlPhone(input.OwnerPhone)
 	if err != nil {
 		utils.RespondError(c, http.StatusBadRequest, "INVALID_PHONE", "owner_phone must be a valid Tanzanian mobile number")
 		return
@@ -69,17 +73,32 @@ func (h *PublicAPI) EnrollVenue(c *gin.Context) {
 		var owner models.User
 		err := tx.Where("LOWER(email) = ?", email).First(&owner).Error
 		if err != nil {
-			owner = models.User{Email: &email, Phone: &phone, Name: strings.TrimSpace(input.OwnerName), AuthProvider: "pending", Language: "en", Role: "owner"}
+			owner = models.User{Email: &email, Phone: &phone, Name: strings.TrimSpace(input.OwnerName), AuthProvider: "pending", Language: "en", Role: "owner", WhatsAppOptIn: input.WhatsApp}
 			if err := tx.Create(&owner).Error; err != nil {
 				return err
 			}
+		} else {
+			tx.Model(&models.User{}).Where("id = ?", owner.ID).
+				Updates(map[string]interface{}{"phone": phone, "whats_app_opt_in": input.WhatsApp})
 		}
 
 		venue = models.Venue{
 			OwnerID: owner.ID, CityID: cityID, Name: strings.TrimSpace(input.VenueName), Area: strings.TrimSpace(input.Area),
+			Latitude: input.Latitude, Longitude: input.Longitude,
 			Status: models.VenueStatusPending, Amenities: datatypes.JSON([]byte("[]")), Rules: datatypes.JSON([]byte("[]")),
 		}
-		return tx.Create(&venue).Error
+		if err := tx.Create(&venue).Error; err != nil {
+			return err
+		}
+		for index, key := range input.PhotoKeys {
+			if strings.TrimSpace(key) == "" {
+				continue
+			}
+			if err := tx.Create(&models.VenuePhoto{VenueID: venue.ID, R2Key: strings.TrimSpace(key), Sort: index}).Error; err != nil {
+				return err
+			}
+		}
+		return nil
 	})
 	if err != nil {
 		if errors.Is(err, errInvalidCity) {

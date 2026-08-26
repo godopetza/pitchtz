@@ -28,6 +28,7 @@ type ownerDTO struct {
 	ID                 uuid.UUID   `json:"id"`
 	Name               string      `json:"name"`
 	Email              string      `json:"email"`
+	AvatarURL          string      `json:"avatar_url,omitempty"`
 	Status             string      `json:"status"`
 	MustChangePassword bool        `json:"must_change_password"`
 	Venues             []uuid.UUID `json:"venue_ids"`
@@ -166,7 +167,7 @@ func toOwnerDTO(c *gin.Context, user models.User, credential models.OwnerCredent
 	var venueIDs []uuid.UUID
 	initializers.DB.WithContext(c.Request.Context()).Model(&models.Venue{}).Where("owner_id = ?", user.ID).Pluck("id", &venueIDs)
 	return ownerDTO{
-		ID: user.ID, Name: user.Name, Email: email, Status: credential.Status,
+		ID: user.ID, Name: user.Name, Email: email, AvatarURL: user.AvatarURL, Status: credential.Status,
 		MustChangePassword: credential.MustChangePassword, Venues: venueIDs, LastLoginProvider: user.LastLoginProvider, LastLoginAt: user.LastLoginAt, CreatedAt: user.CreatedAt,
 	}
 }
