@@ -47,30 +47,51 @@ All API routes are under `/v1` except `/health`, `/docs`, and `/openapi.yaml`.
 
 Heads-up: `pitchtz-client` (the web app) is in the exact same position — its sign-in modal and "Continue to booking" flow are UI-only mocks today, not wired to a real backend, for this same reason. Web and mobile can both ship real browsing/discovery now; neither can ship real sign-in-and-book until the player-auth + booking-creation work lands on the backend.
 
-## Data shapes (from the real Postgres models — field names are the actual JSON keys)
+## Data shapes (VERIFIED against production 2026-08-26 — these are the real JSON keys)
 
-```ts
-City = { id, name, status: "live" | "waitlist", launchEta?, latitude, longitude }
+The public API uses **snake_case** keys. Copy these, not the internal Go model tags.
 
-Venue = {
-  id, ownerId, cityId, name, area, latitude, longitude,
-  status: "pending" | "review" | "active" | "suspended",
-  feeRateBps, verified, rating,
-  amenities: string[], rules: string[],
-  peakMultiplierBps, cancelWindowHours, autoConfirm,
-  city: City, pitches: Pitch[], photos: VenuePhoto[], extras: ExtraCatalog[]
+```jsonc
+// GET /v1/cities -> data: City[]
+{ "id": "uuid", "name": "Dar es Salaam", "status": "live" | "waitlist", "latitude": -6.79, "longitude": 39.21 }
+
+// GET /v1/venues -> data: VenueSummary[]  ·  GET /v1/venues/:id -> data: VenueDetail
+{
+  "id": "uuid",
+  "name": "…", "area": "Masaki",
+  "city": { /* City */ },
+  "latitude": -6.75, "longitude": 39.27,
+  "verified": true, "rating": 0,
+  "amenities": [], "rules": [],
+  "cancel_window_hours": 24,
+  "auto_confirm": false,
+  "price_from_tzs": 40000,
+  "pitches": [
+    { "id": "uuid", "name": "Pitch A", "format": "5-a-side", "surface": "artificial_turf",
+      "base_price_tzs": 40000, "open_hours": {} }
+  ],
+  "photos": [], "extras": []
 }
 
-Pitch = { id, venueId, name, format, surface, basePriceTzs, openHours }
-
-Booking (not player-creatable yet; shape for reference) = {
-  id, code, pitchId, userId?, teamId?, startsAt, endsAt, source,
-  status: "pending" | "confirmed" | "part_paid" | "completed" | "cancelled" | "disputed",
-  repeatRule, pitchFeeTzs, serviceFeeTzs, totalTzs, checkedInAt?, cancelledAt?
+// GET /v1/venues/:id/availability?date=YYYY-MM-DD
+{
+  "from": "2026-08-26T00:00:00+03:00", "to": "2026-08-27T00:00:00+03:00",
+  "pitches": [
+    { "pitch": { /* Pitch */ },
+      "unavailable": [ { "starts_at": "RFC3339", "ends_at": "RFC3339", "kind": "booking" | "block" } ] }
+  ]
 }
+
+// POST /v1/waitlist -> 202
+{ "id": "uuid", "status": "accepted", "city": { /* City */ } }
+// Duplicate joins are idempotent: same id comes back, no duplicate row, still 202.
 ```
 
-**Double-booking is enforced at the database level** (a Postgres exclusion constraint on `pitch_id` + time range, not just app logic), so once booking-creation ships for players, it inherits that same guarantee for free — a 409 comes back on any overlap, atomically, even under concurrent requests. Time ranges are half-open (`[start, end)`), so back-to-back bookings on the same pitch are allowed.
+**Double-booking is enforced at the database level** (a Postgres exclusion constraint on `pitch_id` + time range, not just app logic), so when player booking-creation ships it inherits that guarantee — a 409 on any overlap, atomically, even under concurrent requests. Time ranges are half-open (`[start, end)`), so back-to-back bookings are allowed.
+
+### Production API verification (2026-08-26)
+
+A 29-check suite was run against production: every live endpoint returns the documented envelope and status codes (including 400s for bad filters/uuids/dates and 401s on auth surfaces), every `planned` endpoint 404s cleanly, `/docs` + `/openapi.yaml` serve. Production currently has 1 live city (Dar es Salaam) and 1 seeded venue ("Test Venue (bootstrap)", 1 × 5-a-side pitch, TZS 40,000/hr) to build discovery against.
 
 ## Rate limits (per IP)
 
