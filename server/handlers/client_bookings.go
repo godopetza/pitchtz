@@ -115,6 +115,10 @@ func ClientCreateBooking(c *gin.Context) {
 		utils.RespondError(c, http.StatusNotFound, "PITCH_NOT_FOUND", "pitch was not found")
 		return
 	}
+	if pitch.Status != "" && pitch.Status != "active" {
+		utils.RespondError(c, http.StatusConflict, "PITCH_UNAVAILABLE", "this pitch is not accepting bookings right now")
+		return
+	}
 	var venue models.Venue
 	if err := initializers.DB.WithContext(c.Request.Context()).First(&venue, "id = ?", pitch.VenueID).Error; err != nil || venue.Status != "active" {
 		utils.RespondError(c, http.StatusNotFound, "VENUE_NOT_AVAILABLE", "this venue is not taking bookings")

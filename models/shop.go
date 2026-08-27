@@ -29,12 +29,12 @@ type ShopProduct struct {
 
 type ShopOrder struct {
 	Base
-	Code       string     `gorm:"not null;uniqueIndex" json:"code"`
-	UserID     uuid.UUID  `gorm:"type:uuid;not null;index" json:"userId"`
-	Status     string     `gorm:"not null;default:pending;index" json:"status"`
-	TotalTZS   int64      `gorm:"not null" json:"totalTzs"`
-	Phone      string     `json:"phone"`
-	PaidAt     *time.Time `json:"paidAt,omitempty"`
+	Code        string     `gorm:"not null;uniqueIndex" json:"code"`
+	UserID      uuid.UUID  `gorm:"type:uuid;not null;index" json:"userId"`
+	Status      string     `gorm:"not null;default:pending;index" json:"status"`
+	TotalTZS    int64      `gorm:"not null" json:"totalTzs"`
+	Phone       string     `json:"phone"`
+	PaidAt      *time.Time `json:"paidAt,omitempty"`
 	FulfilledAt *time.Time `json:"fulfilledAt,omitempty"`
 }
 

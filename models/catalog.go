@@ -69,13 +69,15 @@ type Venue struct {
 
 type Pitch struct {
 	Base
-	VenueID      uuid.UUID      `gorm:"type:uuid;not null;index" json:"venueId"`
-	Name         string         `gorm:"not null" json:"name"`
-	Format       string         `gorm:"not null;index" json:"format"`
-	Surface      string         `gorm:"not null" json:"surface"`
-	BasePriceTZS int64          `gorm:"not null" json:"basePriceTzs"`
-	PhotoR2Key   string         `json:"photoR2Key"`
-	OpenHours    datatypes.JSON `gorm:"type:jsonb;not null;default:'{}'" json:"openHours"`
+	VenueID      uuid.UUID `gorm:"type:uuid;not null;index" json:"venueId"`
+	Name         string    `gorm:"not null" json:"name"`
+	Format       string    `gorm:"not null;index" json:"format"`
+	Surface      string    `gorm:"not null" json:"surface"`
+	BasePriceTZS int64     `gorm:"not null" json:"basePriceTzs"`
+	PhotoR2Key   string    `json:"photoR2Key"`
+	// active = bookable; closed = switched off by the owner; suspended = by admin.
+	Status    string         `gorm:"not null;default:active;index" json:"status"`
+	OpenHours datatypes.JSON `gorm:"type:jsonb;not null;default:'{}'" json:"openHours"`
 }
 
 type SlotBlock struct {

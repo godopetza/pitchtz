@@ -26,6 +26,7 @@ type PitchPublicDTO struct {
 	Surface      string          `json:"surface"`
 	BasePriceTZS int64           `json:"base_price_tzs"`
 	PhotoURL     string          `json:"photo_url,omitempty"`
+	Status       string          `json:"status"`
 	OpenHours    json.RawMessage `json:"open_hours"`
 }
 
@@ -42,6 +43,7 @@ type ExtraPublicDTO struct {
 	Name      string    `json:"name"`
 	PriceTZS  int64     `json:"price_tzs"`
 	Unit      string    `json:"unit"`
+	Stock     int       `json:"stock"`
 	Available bool      `json:"available"`
 }
 
@@ -98,7 +100,7 @@ func venuePublicDTO(venue models.Venue) VenuePublicDTO {
 		}
 		dto.Pitches = append(dto.Pitches, PitchPublicDTO{
 			ID: pitch.ID, Name: pitch.Name, Format: pitch.Format, Surface: pitch.Surface,
-			BasePriceTZS: pitch.BasePriceTZS, PhotoURL: photoURL, OpenHours: validJSON(pitch.OpenHours, "{}"),
+			BasePriceTZS: pitch.BasePriceTZS, PhotoURL: photoURL, Status: pitch.Status, OpenHours: validJSON(pitch.OpenHours, "{}"),
 		})
 		if dto.PriceFromTZS == 0 || pitch.BasePriceTZS < dto.PriceFromTZS {
 			dto.PriceFromTZS = pitch.BasePriceTZS
@@ -123,7 +125,7 @@ func venuePublicDTO(venue models.Venue) VenuePublicDTO {
 func extraPublicDTO(extra models.ExtraCatalog) ExtraPublicDTO {
 	return ExtraPublicDTO{
 		ID: extra.ID, Kind: extra.Kind, Name: extra.Name, PriceTZS: extra.PriceTZS,
-		Unit: extra.Unit, Available: extra.Available,
+		Unit: extra.Unit, Stock: extra.Stock, Available: extra.Available,
 	}
 }
 

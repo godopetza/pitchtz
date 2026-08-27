@@ -133,6 +133,7 @@ func NewRouterWithDeps(deps Deps) *gin.Engine {
 		protectedAdmin.POST("/venues/:id/approve", venueReviewRoles, handlers.ApproveVenue)
 		protectedAdmin.POST("/venues", venueReviewRoles, handlers.AdminCreateVenue)
 		protectedAdmin.PATCH("/venues/:id/status", venueReviewRoles, handlers.AdminSetVenueStatus)
+		protectedAdmin.PATCH("/pitches/:id/status", venueReviewRoles, handlers.AdminSetPitchStatus)
 		protectedAdmin.DELETE("/venues/:id", middleware.RequireAdminRoles(models.AdminRoleSuperAdmin), handlers.AdminDeleteVenue)
 		protectedAdmin.GET("/stats", handlers.AdminPlatformStats)
 		protectedAdmin.GET("/notifications", handlers.AdminNotifications)
@@ -163,6 +164,10 @@ func NewRouterWithDeps(deps Deps) *gin.Engine {
 		protectedOwner.POST("/venues/:id/pitches", handlers.OwnerCreatePitch)
 		protectedOwner.PATCH("/pitches/:id", handlers.OwnerUpdatePitch)
 		protectedOwner.GET("/venues/:id/bookings", handlers.OwnerVenueBookings)
+		protectedOwner.GET("/venues/:id/extras", handlers.OwnerListExtras)
+		protectedOwner.POST("/venues/:id/extras", handlers.OwnerCreateExtra)
+		protectedOwner.PATCH("/extras/:id", handlers.OwnerUpdateExtra)
+		protectedOwner.DELETE("/extras/:id", handlers.OwnerDeleteExtra)
 	}
 
 	router.NoRoute(func(c *gin.Context) {

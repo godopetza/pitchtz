@@ -73,6 +73,7 @@ type ownerPitchInput struct {
 	PriceTZS   int64  `json:"price_tzs" binding:"required,gt=0"`
 	PhotoR2Key string `json:"photo_r2_key" binding:"max=200"`
 	Surface    string `json:"surface" binding:"max=40"`
+	Status     string `json:"status" binding:"omitempty,oneof=active closed"`
 }
 
 func ownerOwnsVenue(c *gin.Context, ownerID uuid.UUID, venueID uuid.UUID) bool {
@@ -154,6 +155,14 @@ func OwnerUpdatePitch(c *gin.Context) {
 	}
 	if strings.TrimSpace(input.PhotoR2Key) != "" {
 		updates["photo_r2_key"] = strings.TrimSpace(input.PhotoR2Key)
+	}
+	// Owners open/close their own pitch; only an admin can lift a suspension.
+	if input.Status != "" {
+		if pitch.Status == "suspended" {
+			utils.RespondError(c, http.StatusForbidden, "PITCH_SUSPENDED", "this pitch was suspended by PitchTZ staff — contact support")
+			return
+		}
+		updates["status"] = input.Status
 	}
 	initializers.DB.WithContext(c.Request.Context()).Model(&models.Pitch{}).Where("id = ?", pitchID).Updates(updates)
 	utils.RespondSuccess(c, http.StatusOK, gin.H{"updated": true}, "Pitch updated.")

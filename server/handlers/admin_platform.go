@@ -261,3 +261,29 @@ func AdminNotifications(c *gin.Context) {
 		"careers_new":    careersNew,
 	}, "")
 }
+
+// AdminSetPitchStatus suspends or restores a single pitch, with an audit row
+// naming the staff member. Owners see "suspended by staff" and cannot lift it.
+func AdminSetPitchStatus(c *gin.Context) {
+	pitchID, ok := parseID(c, "id")
+	if !ok {
+		return
+	}
+	var input struct {
+		Status string `json:"status" binding:"required,oneof=active suspended"`
+	}
+	if err := c.ShouldBindJSON(&input); err != nil {
+		utils.RespondError(c, http.StatusBadRequest, "INVALID_INPUT", "status must be active or suspended")
+		return
+	}
+	var pitch models.Pitch
+	if err := initializers.DB.WithContext(c.Request.Context()).First(&pitch, "id = ?", pitchID).Error; err != nil {
+		utils.RespondError(c, http.StatusNotFound, "PITCH_NOT_FOUND", "pitch was not found")
+		return
+	}
+	initializers.DB.WithContext(c.Request.Context()).Model(&models.Pitch{}).
+		Where("id = ?", pitchID).Update("status", input.Status)
+	writeAudit(c, "pitch.status", "pitch", pitchID.String(),
+		fmt.Sprintf("%s: %s -> %s", pitch.Name, pitch.Status, input.Status))
+	utils.RespondSuccess(c, http.StatusOK, gin.H{"id": pitchID, "status": input.Status}, "Pitch status updated.")
+}
