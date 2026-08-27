@@ -226,3 +226,127 @@ func randomPassword() (string, error) {
 	}
 	return base32.StdEncoding.WithPadding(base32.NoPadding).EncodeToString(buf), nil
 }
+
+type adminCreateVenueInput struct {
+	VenueName     string  `json:"venue_name" binding:"required,min=2,max=120"`
+	Area          string  `json:"area" binding:"required,min=2,max=120"`
+	CityID        string  `json:"city_id" binding:"required"`
+	OwnerName     string  `json:"owner_name" binding:"required,min=2,max=120"`
+	OwnerEmail    string  `json:"owner_email" binding:"required,email,max=254"`
+	OwnerPhone    string  `json:"owner_phone" binding:"max=32"`
+	Latitude      float64 `json:"latitude"`
+	Longitude     float64 `json:"longitude"`
+	PitchName     string  `json:"pitch_name" binding:"max=120"`
+	PitchFormat   string  `json:"pitch_format" binding:"max=40"`
+	PitchPriceTZS int64   `json:"pitch_price_tzs"`
+}
+
+// AdminCreateVenue lets superadmin onboard a venue directly: the venue goes
+// live immediately, the owner account is created (or linked by email), and
+// login credentials are emailed to the owner.
+func AdminCreateVenue(c *gin.Context) {
+	var input adminCreateVenueInput
+	if err := c.ShouldBindJSON(&input); err != nil {
+		utils.RespondError(c, http.StatusBadRequest, "INVALID_INPUT", "venue_name, area, city_id, owner_name, and owner_email are required")
+		return
+	}
+	cityID, err := uuid.Parse(input.CityID)
+	if err != nil {
+		utils.RespondError(c, http.StatusBadRequest, "INVALID_CITY_ID", "city_id must be a UUID")
+		return
+	}
+	email, err := utils.NormalizeEmail(input.OwnerEmail)
+	if err != nil {
+		utils.RespondError(c, http.StatusBadRequest, "INVALID_EMAIL", "owner_email is invalid")
+		return
+	}
+	phone := ""
+	if strings.TrimSpace(input.OwnerPhone) != "" {
+		if phone, err = utils.NormalizeIntlPhone(input.OwnerPhone); err != nil {
+			utils.RespondError(c, http.StatusBadRequest, "INVALID_PHONE", "owner_phone is invalid")
+			return
+		}
+	}
+
+	var venue models.Venue
+	var owner models.User
+	var temporaryPassword string
+	err = initializers.DB.WithContext(c.Request.Context()).Transaction(func(tx *gorm.DB) error {
+		var city models.City
+		if err := tx.First(&city, "id = ?", cityID).Error; err != nil {
+			return errInvalidCity
+		}
+		if err := tx.Where("LOWER(email) = ?", email).First(&owner).Error; err != nil {
+			owner = models.User{Email: &email, Name: strings.TrimSpace(input.OwnerName), AuthProvider: "invited", Language: "sw", Role: "owner"}
+			if phone != "" {
+				owner.Phone = &phone
+			}
+			if err := tx.Create(&owner).Error; err != nil {
+				return err
+			}
+		}
+		venue = models.Venue{
+			OwnerID: owner.ID, CityID: cityID, Name: strings.TrimSpace(input.VenueName), Area: strings.TrimSpace(input.Area),
+			Latitude: input.Latitude, Longitude: input.Longitude, Status: models.VenueStatusActive, Verified: true,
+			Amenities: datatypes.JSON([]byte("[]")), Rules: datatypes.JSON([]byte("[]")),
+		}
+		if err := tx.Create(&venue).Error; err != nil {
+			return err
+		}
+		if strings.TrimSpace(input.PitchName) != "" && input.PitchPriceTZS > 0 {
+			format := strings.TrimSpace(input.PitchFormat)
+			if format == "" {
+				format = "5-a-side"
+			}
+			pitch := models.Pitch{VenueID: venue.ID, Name: strings.TrimSpace(input.PitchName), Format: format, Surface: "artificial_turf", BasePriceTZS: input.PitchPriceTZS}
+			if err := tx.Create(&pitch).Error; err != nil {
+				return err
+			}
+		}
+		var existing int64
+		tx.Model(&models.OwnerCredential{}).Where("user_id = ?", owner.ID).Count(&existing)
+		if existing > 0 {
+			return nil
+		}
+		var passwordErr error
+		temporaryPassword, passwordErr = randomPassword()
+		if passwordErr != nil {
+			return passwordErr
+		}
+		hash, hashErr := bcrypt.GenerateFromPassword([]byte(temporaryPassword), 12)
+		if hashErr != nil {
+			return hashErr
+		}
+		return tx.Create(&models.OwnerCredential{UserID: owner.ID, Status: models.OwnerStatusActive, PasswordHash: string(hash), MustChangePassword: true}).Error
+	})
+	if err != nil {
+		if errors.Is(err, errInvalidCity) {
+			utils.RespondError(c, http.StatusBadRequest, "INVALID_CITY", "city does not exist")
+			return
+		}
+		utils.RespondError(c, http.StatusInternalServerError, "VENUE_CREATE_FAILED", "could not create the venue")
+		return
+	}
+
+	writeAudit(c, "venue.create", "venue", venue.ID.String(), venue.Name+" for "+email)
+
+	response := gin.H{"venue_id": venue.ID, "status": venue.Status, "owner_email": email}
+	message := "Venue created and live."
+	emailSent := false
+	if temporaryPassword != "" {
+		response["temporary_password"] = temporaryPassword
+		portalURL := strings.TrimRight(strings.TrimSpace(os.Getenv("OWNER_APP_URL")), "/")
+		if portalURL == "" {
+			portalURL = "http://localhost:3002"
+		}
+		if err := services.SendWelcomeAccess(c.Request.Context(), email, owner.Name, temporaryPassword, portalURL, "owner", "welcome-owner-"+owner.ID.String()); err != nil {
+			log.Printf("owner welcome email failed for user %s: %v", owner.ID, err)
+			message = "Venue created. Email delivery failed — share the temporary password securely."
+		} else {
+			emailSent = true
+			message = "Venue created. Login credentials emailed to the owner."
+		}
+	}
+	response["email_sent"] = emailSent
+	utils.RespondSuccess(c, http.StatusCreated, response, message)
+}

@@ -131,6 +131,7 @@ func NewRouterWithDeps(deps Deps) *gin.Engine {
 		venueReviewRoles := middleware.RequireAdminRoles(models.AdminRoleSuperAdmin, models.AdminRoleOperations)
 		protectedAdmin.GET("/venues", venueReviewRoles, handlers.ListVenuesForAdmin)
 		protectedAdmin.POST("/venues/:id/approve", venueReviewRoles, handlers.ApproveVenue)
+		protectedAdmin.POST("/venues", venueReviewRoles, handlers.AdminCreateVenue)
 		protectedAdmin.PATCH("/venues/:id/status", venueReviewRoles, handlers.AdminSetVenueStatus)
 		protectedAdmin.DELETE("/venues/:id", middleware.RequireAdminRoles(models.AdminRoleSuperAdmin), handlers.AdminDeleteVenue)
 		protectedAdmin.GET("/stats", handlers.AdminPlatformStats)

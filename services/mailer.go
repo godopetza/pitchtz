@@ -71,16 +71,16 @@ func renderPitchTZEmail(mail brandedEmail) string {
 	if strings.TrimSpace(mail.HeroURL) != "" {
 		hero = fmt.Sprintf(`<tr><td style="padding:0;background:#123d2c"><img src="%s" width="600" alt="PitchTZ sports venue" style="display:block;width:100%%;max-width:600px;height:190px;object-fit:cover;border:0" /></td></tr>`, html.EscapeString(mail.HeroURL))
 	}
-	return fmt.Sprintf(`<!doctype html><html lang="en"><body style="margin:0;padding:0;background:#f3f1e9;color:#17201a">
+	return fmt.Sprintf(`<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"></head><body style="margin:0;padding:0;background:#f3f1e9;color:#17201a">
 <div style="display:none;max-height:0;overflow:hidden;opacity:0;color:transparent">%s</div>
 <table role="presentation" width="100%%" cellpadding="0" cellspacing="0" style="background:#f3f1e9;padding:28px 12px"><tr><td align="center">
 <table role="presentation" width="100%%" cellpadding="0" cellspacing="0" style="max-width:600px;background:#ffffff;border:1px solid #deddd5;border-radius:24px;overflow:hidden">
-<tr><td style="background:#0e3b2c;padding:24px 30px"><table role="presentation" width="100%%"><tr><td style="font-family:Arial,Helvetica,sans-serif;font-size:23px;font-weight:800;letter-spacing:-.5px;color:#ffffff">PITCH<span style="color:#c9f24e">TZ</span></td><td align="right" style="font-family:Arial,Helvetica,sans-serif;font-size:10px;font-weight:700;letter-spacing:1.8px;color:#a9bdb2">TAFUTA · WEKA NAFASI · CHEZA</td></tr></table></td></tr>
+<tr><td style="background:#0e3b2c;padding:22px 30px"><table role="presentation" width="100%%"><tr><td><a href="https://pitchtz.flutterai.dev" style="text-decoration:none"><table role="presentation" cellpadding="0" cellspacing="0"><tr><td style="padding-right:12px"><img src="https://pitchtz.flutterai.dev/images/pitchtz-mark.png" width="34" height="52" alt="PitchTZ" style="display:block;border:0" /></td><td style="font-family:Arial,Helvetica,sans-serif;font-size:23px;font-weight:800;letter-spacing:-.5px;color:#ffffff;vertical-align:middle">PITCH<span style="color:#c9f24e">TZ</span></td></tr></table></a></td><td align="right" style="font-family:Arial,Helvetica,sans-serif;font-size:10px;font-weight:700;letter-spacing:1.8px;color:#a9bdb2">TAFUTA · WEKA NAFASI · CHEZA</td></tr></table></td></tr>
 %s
 <tr><td style="padding:34px 34px 14px;font-family:Arial,Helvetica,sans-serif"><div style="font-size:11px;font-weight:800;letter-spacing:1.6px;color:#3e7c5b;text-transform:uppercase">%s</div><h1 style="margin:9px 0 14px;font-size:29px;line-height:1.14;letter-spacing:-.8px;color:#17201a">%s</h1><div style="font-size:15px;line-height:1.7;color:#59635d">%s</div></td></tr>
 <tr><td style="padding:12px 34px 26px"><a href="%s" style="display:inline-block;background:#0e3b2c;color:#ffffff;text-decoration:none;border-radius:999px;padding:14px 22px;font-family:Arial,Helvetica,sans-serif;font-size:14px;font-weight:800">%s&nbsp;&nbsp;→</a></td></tr>
 <tr><td style="padding:0 34px 30px;font-family:Arial,Helvetica,sans-serif;font-size:12px;line-height:1.65;color:#7a827c">%s</td></tr>
-<tr><td style="background:#f8f7f2;border-top:1px solid #e7e5dd;padding:22px 34px;font-family:Arial,Helvetica,sans-serif"><div style="font-size:14px;font-weight:800;color:#17201a">Ben</div><div style="font-size:12px;color:#68736c;padding-top:3px">Maker of PitchTZ · Dar es Salaam, Tanzania</div></td></tr>
+<tr><td style="background:#f8f7f2;border-top:1px solid #e7e5dd;padding:22px 34px;font-family:Arial,Helvetica,sans-serif"><div style="font-size:14px;font-weight:800;color:#17201a">Ben</div><div style="font-size:12px;color:#68736c;padding-top:3px">PitchTZ Founder · Dar es Salaam, Tanzania</div></td></tr>
 </table><div style="padding:16px;font-family:Arial,Helvetica,sans-serif;font-size:10px;line-height:1.5;color:#8a918c">PitchTZ transactional email. Please never share a password or secure link with anyone.</div>
 </td></tr></table></body></html>`, html.EscapeString(mail.Preheader), hero, html.EscapeString(mail.Eyebrow), html.EscapeString(mail.Title), mail.BodyHTML, html.EscapeString(mail.ActionURL), html.EscapeString(mail.ActionLabel), html.EscapeString(mail.Footnote))
 }
@@ -89,7 +89,7 @@ func emailHeroURL() string {
 	if value := strings.TrimSpace(os.Getenv("EMAIL_HERO_URL")); value != "" {
 		return value
 	}
-	return "https://pitchtz.flutterai.dev/images/pitchtz-twin-pitches-v2.png"
+	return "https://pitchtz.flutterai.dev/images/pitchtz-email-hero.jpg"
 }
 
 func SendPasswordReset(ctx context.Context, to, name, resetURL, audience, idempotencyKey string) error {
@@ -102,7 +102,7 @@ func SendPasswordReset(ctx context.Context, to, name, resetURL, audience, idempo
 	}
 	body := fmt.Sprintf(`<p style="margin:0 0 12px">Hello <strong style="color:#17201a">%s</strong>, we received a request to reset your PitchTZ %s password.</p><p style="margin:0">Bonyeza kitufe hapa chini kuweka neno jipya la siri. Kiungo hiki ni cha matumizi moja tu.</p>`, html.EscapeString(name), html.EscapeString(portal))
 	payload := resendEmail{To: []string{to}, Subject: "Reset your PitchTZ password",
-		Text: fmt.Sprintf("Hello %s,\n\nReset your PitchTZ %s password:\n%s\n\nThis one-time link expires in 30 minutes. If you did not request it, ignore this email.\n\nBen\nMaker of PitchTZ", name, portal, resetURL),
+		Text: fmt.Sprintf("Hello %s,\n\nReset your PitchTZ %s password:\n%s\n\nThis one-time link expires in 30 minutes. If you did not request it, ignore this email.\n\nBen\nPitchTZ Founder", name, portal, resetURL),
 		HTML: renderPitchTZEmail(brandedEmail{Preheader: "Your secure PitchTZ password reset link.", Eyebrow: "Secure account access", Title: "Choose a new password.", BodyHTML: body, ActionLabel: "Reset password", ActionURL: resetURL, Footnote: "This secure link expires in 30 minutes and works once. If you did not make this request, you can safely ignore this email.", HeroURL: emailHeroURL()}),
 	}
 	return sendResend(ctx, payload, idempotencyKey)
@@ -118,7 +118,7 @@ func SendEmailVerificationCode(ctx context.Context, to, name, code, idempotencyK
 	codeBoxes := fmt.Sprintf(`<table role="presentation" cellpadding="0" cellspacing="0" style="margin:6px 0 4px"><tr><td style="font-family:'Courier New',monospace;font-size:34px;font-weight:800;letter-spacing:10px;color:#0e3b2c;background:#f5f7f1;border:1px solid #dce3d6;border-radius:14px;padding:16px 22px">%s</td></tr></table>`, html.EscapeString(code))
 	body := fmt.Sprintf(`<p style="margin:0 0 14px">Hello <strong style="color:#17201a">%s</strong>, use this code to sign in to PitchTZ.</p>%s<p style="margin:14px 0 0">Namba hii inatumika kwa dakika 10 pekee.</p>`, html.EscapeString(name), codeBoxes)
 	payload := resendEmail{To: []string{to}, Subject: "Your PitchTZ sign-in code: " + code,
-		Text: fmt.Sprintf("Hello %s,\n\nYour PitchTZ sign-in code is: %s\n\nThis code expires in 10 minutes. If you did not request it, ignore this email.\n\nBen\nMaker of PitchTZ", name, code),
+		Text: fmt.Sprintf("Hello %s,\n\nYour PitchTZ sign-in code is: %s\n\nThis code expires in 10 minutes. If you did not request it, ignore this email.\n\nBen\nPitchTZ Founder", name, code),
 		HTML: renderPitchTZEmail(brandedEmail{Preheader: "Your PitchTZ sign-in code: " + code, Eyebrow: "Sign-in code", Title: "Enter this code to continue.", BodyHTML: body, ActionLabel: "Open PitchTZ", ActionURL: clientAppURL(), Footnote: "This code expires in 10 minutes and works once. If you did not request it, you can safely ignore this email.", HeroURL: emailHeroURL()}),
 	}
 	return sendResend(ctx, payload, idempotencyKey)
@@ -147,9 +147,9 @@ func SendWelcomeAccess(ctx context.Context, to, name, temporaryPassword, portalU
 		subject = "Welcome to PitchTZ Superadmin"
 		intro = "Your staff account is ready. Your role and permissions are managed by the PitchTZ Superadmin team."
 	}
-	body := fmt.Sprintf(`<p style="margin:0 0 14px">Hello <strong style="color:#17201a">%s</strong>, %s</p><p style="margin:0 0 14px">Karibu PitchTZ — tunafurahi kuwa nawe.</p><table role="presentation" width="100%%" cellpadding="0" cellspacing="0" style="background:#f5f7f1;border:1px solid #dce3d6;border-radius:14px"><tr><td style="padding:16px 18px;font-family:Arial,Helvetica,sans-serif;font-size:12px;color:#68736c">PORTAL<br><strong style="font-size:14px;color:#17201a">%s</strong></td></tr><tr><td style="padding:0 18px 16px;font-family:Arial,Helvetica,sans-serif;font-size:12px;color:#68736c">TEMPORARY PASSWORD<br><strong style="font-family:'Courier New',monospace;font-size:16px;letter-spacing:.5px;color:#0e3b2c">%s</strong></td></tr></table>`, html.EscapeString(name), html.EscapeString(intro), html.EscapeString(portalName), html.EscapeString(temporaryPassword))
+	body := fmt.Sprintf(`<p style="margin:0 0 14px">Hello <strong style="color:#17201a">%s</strong>, %s</p><p style="margin:0 0 18px">Karibu PitchTZ — tunafurahi kuwa nawe.</p><table role="presentation" width="100%%" cellpadding="0" cellspacing="0" style="background:#0e3b2c;border-radius:16px"><tr><td style="padding:18px 20px 6px;font-family:Arial,Helvetica,sans-serif;font-size:10px;font-weight:700;letter-spacing:1.4px;color:#a9bdb2">PORTAL</td></tr><tr><td style="padding:0 20px;font-family:Arial,Helvetica,sans-serif;font-size:15px;font-weight:800;color:#ffffff">%s</td></tr><tr><td style="padding:14px 20px 6px;font-family:Arial,Helvetica,sans-serif;font-size:10px;font-weight:700;letter-spacing:1.4px;color:#a9bdb2">YOUR EMAIL</td></tr><tr><td style="padding:0 20px;font-family:Arial,Helvetica,sans-serif;font-size:14px;color:#ffffff">%s</td></tr><tr><td style="padding:14px 20px 6px;font-family:Arial,Helvetica,sans-serif;font-size:10px;font-weight:700;letter-spacing:1.4px;color:#a9bdb2">TEMPORARY PASSWORD</td></tr><tr><td style="padding:0 20px 18px;font-family:'Courier New',monospace;font-size:19px;font-weight:700;letter-spacing:1px;color:#c9f24e">%s</td></tr></table><table role="presentation" width="100%%" cellpadding="0" cellspacing="0" style="margin-top:18px"><tr><td style="font-family:Arial,Helvetica,sans-serif;font-size:13px;line-height:1.7;color:#59635d"><strong style="color:#17201a">What you can do inside:</strong><br>1&#41; See live availability and bookings for every pitch<br>2&#41; Collect mobile money payments (Airtel, Mixx, HaloPesa) with QR split-pay<br>3&#41; Reply to player reviews and manage photos, pricing and payouts</td></tr></table>`, html.EscapeString(name), html.EscapeString(intro), html.EscapeString(portalName), html.EscapeString(to), html.EscapeString(temporaryPassword))
 	payload := resendEmail{To: []string{to}, Subject: subject,
-		Text: fmt.Sprintf("Hello %s,\n\n%s\n\nPortal: %s\nTemporary password: %s\nSign in: %s\n\nYou will be asked to choose a new password.\n\nKaribu PitchTZ.\nBen\nMaker of PitchTZ", name, intro, portalName, temporaryPassword, portalURL),
+		Text: fmt.Sprintf("Hello %s,\n\n%s\n\nPortal: %s\nTemporary password: %s\nSign in: %s\n\nYou will be asked to choose a new password.\n\nKaribu PitchTZ.\nBen\nPitchTZ Founder", name, intro, portalName, temporaryPassword, portalURL),
 		HTML: renderPitchTZEmail(brandedEmail{Preheader: "Your invited PitchTZ account is ready.", Eyebrow: "Welcome to PitchTZ", Title: title, BodyHTML: body, ActionLabel: "Open " + portalName, ActionURL: portalURL, Footnote: "For your security, sign in with the temporary password and replace it immediately. This account was created by invitation; PitchTZ never enables public staff signup.", HeroURL: emailHeroURL()}),
 	}
 	return sendResend(ctx, payload, idempotencyKey)
