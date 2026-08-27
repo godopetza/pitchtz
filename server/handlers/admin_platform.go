@@ -238,3 +238,18 @@ func AdminListAudit(c *gin.Context) {
 	initializers.DB.WithContext(c.Request.Context()).Order("created_at DESC").Limit(100).Find(&entries)
 	utils.RespondSuccess(c, http.StatusOK, entries, "")
 }
+
+// AdminNotifications is the lightweight poll behind the sidebar badges and
+// the bell: everything that currently needs a human.
+func AdminNotifications(c *gin.Context) {
+	db := initializers.DB.WithContext(c.Request.Context())
+	var venuesPending, disputesOpen, careersNew int64
+	db.Model(&models.Venue{}).Where("status = ?", models.VenueStatusPending).Count(&venuesPending)
+	db.Model(&models.Dispute{}).Where("status = ?", "open").Count(&disputesOpen)
+	db.Model(&models.CareerApplication{}).Where("status = ?", "new").Count(&careersNew)
+	utils.RespondSuccess(c, http.StatusOK, gin.H{
+		"venues_pending": venuesPending,
+		"disputes_open":  disputesOpen,
+		"careers_new":    careersNew,
+	}, "")
+}

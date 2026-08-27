@@ -135,6 +135,7 @@ func NewRouterWithDeps(deps Deps) *gin.Engine {
 		protectedAdmin.PATCH("/venues/:id/status", venueReviewRoles, handlers.AdminSetVenueStatus)
 		protectedAdmin.DELETE("/venues/:id", middleware.RequireAdminRoles(models.AdminRoleSuperAdmin), handlers.AdminDeleteVenue)
 		protectedAdmin.GET("/stats", handlers.AdminPlatformStats)
+		protectedAdmin.GET("/notifications", handlers.AdminNotifications)
 		protectedAdmin.GET("/bookings", handlers.AdminListBookings)
 		protectedAdmin.GET("/disputes", handlers.AdminListDisputes)
 		protectedAdmin.GET("/audit", middleware.RequireAdminRoles(models.AdminRoleSuperAdmin), handlers.AdminListAudit)
