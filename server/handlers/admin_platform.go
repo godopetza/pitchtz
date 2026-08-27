@@ -43,9 +43,12 @@ func AdminPlatformStats(c *gin.Context) {
 
 	weekStart := time.Now().UTC().AddDate(0, 0, -7)
 	prevWeekStart := time.Now().UTC().AddDate(0, 0, -14)
-	var bookingsWeek, bookingsPrevWeek int64
+	var bookingsWeek, bookingsPrevWeek, bookingsFundedWeek, bookingsFailedWeek int64
 	db.Model(&models.Booking{}).Where("created_at >= ?", weekStart).Count(&bookingsWeek)
 	db.Model(&models.Booking{}).Where("created_at >= ? AND created_at < ?", prevWeekStart, weekStart).Count(&bookingsPrevWeek)
+	db.Model(&models.Booking{}).Where("created_at >= ? AND status IN ?", weekStart,
+		[]string{models.BookingStatusConfirmed, models.BookingStatusCompleted, models.BookingStatusPartPaid}).Count(&bookingsFundedWeek)
+	db.Model(&models.Booking{}).Where("created_at >= ? AND status = ?", weekStart, models.BookingStatusCancelled).Count(&bookingsFailedWeek)
 
 	var gmvWeek, gmvPrevWeek int64
 	db.Model(&models.PaymentShare{}).Where("status = ? AND paid_at >= ?", "paid", weekStart).
@@ -85,29 +88,33 @@ func AdminPlatformStats(c *gin.Context) {
 
 	// Top venues by bookings this week, with weekly GMV and fee income.
 	type topRow struct {
-		ID           string
-		Name         string
-		Area         string
-		Latitude     float64
-		Longitude    float64
-		Rating       float64
-		FeeRateBPS   int
-		BookingsWeek int64
-		GMVWeek      int64
+		ID            string
+		Name          string
+		Area          string
+		Latitude      float64
+		Longitude     float64
+		Rating        float64
+		FeeRateBPS    int
+		BookingsWeek  int64
+		FundedWeek    int64
+		CancelledWeek int64
+		GMVWeek       int64
 	}
 	var top []topRow
 	db.Table("venues").
 		Select(`venues.id, venues.name, venues.area, venues.latitude, venues.longitude, venues.rating, venues.fee_rate_bps,
 			COALESCE((SELECT COUNT(*) FROM bookings b JOIN pitches p ON p.id = b.pitch_id WHERE p.venue_id = venues.id AND b.created_at >= ?), 0) AS bookings_week,
+			COALESCE((SELECT COUNT(*) FROM bookings bf JOIN pitches pf ON pf.id = bf.pitch_id WHERE pf.venue_id = venues.id AND bf.created_at >= ? AND bf.status IN ('confirmed','completed','part_paid')), 0) AS funded_week,
+			COALESCE((SELECT COUNT(*) FROM bookings bc JOIN pitches pc ON pc.id = bc.pitch_id WHERE pc.venue_id = venues.id AND bc.created_at >= ? AND bc.status = 'cancelled'), 0) AS cancelled_week,
 			COALESCE((SELECT SUM(ps.amount_tzs) FROM payment_shares ps JOIN bookings b2 ON b2.id = ps.booking_id JOIN pitches p2 ON p2.id = b2.pitch_id WHERE p2.venue_id = venues.id AND ps.status = 'paid' AND ps.paid_at >= ?), 0) AS gmv_week`,
-			weekStart, weekStart).
+			weekStart, weekStart, weekStart, weekStart).
 		Where("venues.status = ?", models.VenueStatusActive).
 		Order("bookings_week DESC, venues.rating DESC").Limit(8).Scan(&top)
 	topItems := make([]gin.H, 0, len(top))
 	for _, v := range top {
 		topItems = append(topItems, gin.H{
 			"id": v.ID, "name": v.Name, "area": v.Area, "lat": v.Latitude, "lng": v.Longitude,
-			"rating": v.Rating, "bookings_week": v.BookingsWeek, "gmv_week": v.GMVWeek,
+			"rating": v.Rating, "bookings_week": v.BookingsWeek, "funded_week": v.FundedWeek, "cancelled_week": v.CancelledWeek, "gmv_week": v.GMVWeek,
 			"fee_week": v.GMVWeek * int64(v.FeeRateBPS) / 10000,
 		})
 	}
@@ -116,6 +123,8 @@ func AdminPlatformStats(c *gin.Context) {
 		"bookings_total":     bookingsTotal,
 		"bookings_today":     bookingsToday,
 		"bookings_week":      bookingsWeek,
+		"bookings_funded_week": bookingsFundedWeek,
+		"bookings_failed_week": bookingsFailedWeek,
 		"bookings_prev_week": bookingsPrevWeek,
 		"revenue_paid_tzs":   revenuePaid,
 		"gmv_week_tzs":       gmvWeek,
