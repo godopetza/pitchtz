@@ -50,6 +50,7 @@ type PaymentTransaction struct {
 	Base
 	ShareID        uuid.UUID  `gorm:"type:uuid;not null;index" json:"shareId"`
 	Provider       string     `gorm:"not null" json:"provider"`
+	Operator       string     `json:"operator"`
 	ProviderRef    string     `gorm:"index" json:"providerRef"`
 	IdempotencyKey string     `gorm:"not null;uniqueIndex" json:"idempotencyKey"`
 	AmountTZS      int64      `gorm:"not null" json:"amountTzs"`

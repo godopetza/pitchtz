@@ -108,6 +108,7 @@ func chargeShareViaMalipo(c *gin.Context, booking models.Booking, share models.P
 	transaction := models.PaymentTransaction{
 		ShareID:        share.ID,
 		Provider:       provider,
+		Operator:       strings.TrimSpace(operator),
 		IdempotencyKey: reference,
 		AmountTZS:      share.AmountTZS,
 		Direction:      "charge",

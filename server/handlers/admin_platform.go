@@ -41,14 +41,92 @@ func AdminPlatformStats(c *gin.Context) {
 	db.Model(&models.PaymentShare{}).Where("status = ?", "paid").
 		Select("COALESCE(SUM(amount_tzs), 0)").Scan(&revenuePaid)
 
+	weekStart := time.Now().UTC().AddDate(0, 0, -7)
+	prevWeekStart := time.Now().UTC().AddDate(0, 0, -14)
+	var bookingsWeek, bookingsPrevWeek int64
+	db.Model(&models.Booking{}).Where("created_at >= ?", weekStart).Count(&bookingsWeek)
+	db.Model(&models.Booking{}).Where("created_at >= ? AND created_at < ?", prevWeekStart, weekStart).Count(&bookingsPrevWeek)
+
+	var gmvWeek, gmvPrevWeek int64
+	db.Model(&models.PaymentShare{}).Where("status = ? AND paid_at >= ?", "paid", weekStart).
+		Select("COALESCE(SUM(amount_tzs), 0)").Scan(&gmvWeek)
+	db.Model(&models.PaymentShare{}).Where("status = ? AND paid_at >= ? AND paid_at < ?", "paid", prevWeekStart, weekStart).
+		Select("COALESCE(SUM(amount_tzs), 0)").Scan(&gmvPrevWeek)
+
+	// GMV, weekly buckets for the last 8 weeks.
+	type weekRow struct {
+		Week   time.Time
+		Amount int64
+	}
+	var weeks []weekRow
+	db.Model(&models.PaymentShare{}).
+		Select("date_trunc('week', paid_at) AS week, COALESCE(SUM(amount_tzs), 0) AS amount").
+		Where("status = ? AND paid_at >= ?", "paid", time.Now().UTC().AddDate(0, 0, -56)).
+		Group("week").Order("week").Scan(&weeks)
+	weekly := make([]gin.H, 0, len(weeks))
+	for _, w := range weeks {
+		weekly = append(weekly, gin.H{"week": w.Week.Format("2006-01-02"), "amount": w.Amount})
+	}
+
+	// Payment mix from completed charges, by operator.
+	type mixRow struct {
+		Operator string
+		Count    int64
+	}
+	var mix []mixRow
+	db.Model(&models.PaymentTransaction{}).
+		Select("COALESCE(NULLIF(operator, ''), 'other') AS operator, COUNT(*) AS count").
+		Where("status = ? AND direction = ?", "completed", "charge").
+		Group("operator").Order("count DESC").Scan(&mix)
+	mixItems := make([]gin.H, 0, len(mix))
+	for _, m := range mix {
+		mixItems = append(mixItems, gin.H{"operator": m.Operator, "count": m.Count})
+	}
+
+	// Top venues by bookings this week, with weekly GMV and fee income.
+	type topRow struct {
+		ID           string
+		Name         string
+		Area         string
+		Latitude     float64
+		Longitude    float64
+		Rating       float64
+		FeeRateBPS   int
+		BookingsWeek int64
+		GMVWeek      int64
+	}
+	var top []topRow
+	db.Table("venues").
+		Select(`venues.id, venues.name, venues.area, venues.latitude, venues.longitude, venues.rating, venues.fee_rate_bps,
+			COALESCE((SELECT COUNT(*) FROM bookings b JOIN pitches p ON p.id = b.pitch_id WHERE p.venue_id = venues.id AND b.created_at >= ?), 0) AS bookings_week,
+			COALESCE((SELECT SUM(ps.amount_tzs) FROM payment_shares ps JOIN bookings b2 ON b2.id = ps.booking_id JOIN pitches p2 ON p2.id = b2.pitch_id WHERE p2.venue_id = venues.id AND ps.status = 'paid' AND ps.paid_at >= ?), 0) AS gmv_week`,
+			weekStart, weekStart).
+		Where("venues.status = ?", models.VenueStatusActive).
+		Order("bookings_week DESC, venues.rating DESC").Limit(8).Scan(&top)
+	topItems := make([]gin.H, 0, len(top))
+	for _, v := range top {
+		topItems = append(topItems, gin.H{
+			"id": v.ID, "name": v.Name, "area": v.Area, "lat": v.Latitude, "lng": v.Longitude,
+			"rating": v.Rating, "bookings_week": v.BookingsWeek, "gmv_week": v.GMVWeek,
+			"fee_week": v.GMVWeek * int64(v.FeeRateBPS) / 10000,
+		})
+	}
+
 	utils.RespondSuccess(c, http.StatusOK, gin.H{
-		"bookings_total":   bookingsTotal,
-		"bookings_today":   bookingsToday,
-		"revenue_paid_tzs": revenuePaid,
-		"venues_active":    venuesActive,
-		"venues_pending":   venuesPending,
-		"disputes_open":    disputesOpen,
-		"players":          players,
+		"bookings_total":     bookingsTotal,
+		"bookings_today":     bookingsToday,
+		"bookings_week":      bookingsWeek,
+		"bookings_prev_week": bookingsPrevWeek,
+		"revenue_paid_tzs":   revenuePaid,
+		"gmv_week_tzs":       gmvWeek,
+		"gmv_prev_week_tzs":  gmvPrevWeek,
+		"venues_active":      venuesActive,
+		"venues_pending":     venuesPending,
+		"disputes_open":      disputesOpen,
+		"players":            players,
+		"weekly_gmv":         weekly,
+		"payment_mix":        mixItems,
+		"top_venues":         topItems,
 	}, "")
 }
 
