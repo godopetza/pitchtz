@@ -160,6 +160,9 @@ func NewRouterWithDeps(deps Deps) *gin.Engine {
 		protectedOwner.POST("/bookings/:id/pay", handlers.RequestBookingPayment)
 		protectedOwner.POST("/reviews/:id/reply", handlers.OwnerReplyToReview)
 		protectedOwner.GET("/venues", handlers.OwnerListVenues)
+		protectedOwner.POST("/venues/:id/pitches", handlers.OwnerCreatePitch)
+		protectedOwner.PATCH("/pitches/:id", handlers.OwnerUpdatePitch)
+		protectedOwner.GET("/venues/:id/bookings", handlers.OwnerVenueBookings)
 	}
 
 	router.NoRoute(func(c *gin.Context) {

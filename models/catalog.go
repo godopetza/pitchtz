@@ -74,6 +74,7 @@ type Pitch struct {
 	Format       string         `gorm:"not null;index" json:"format"`
 	Surface      string         `gorm:"not null" json:"surface"`
 	BasePriceTZS int64          `gorm:"not null" json:"basePriceTzs"`
+	PhotoR2Key   string         `json:"photoR2Key"`
 	OpenHours    datatypes.JSON `gorm:"type:jsonb;not null;default:'{}'" json:"openHours"`
 }
 

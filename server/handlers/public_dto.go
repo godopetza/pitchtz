@@ -25,6 +25,7 @@ type PitchPublicDTO struct {
 	Format       string          `json:"format"`
 	Surface      string          `json:"surface"`
 	BasePriceTZS int64           `json:"base_price_tzs"`
+	PhotoURL     string          `json:"photo_url,omitempty"`
 	OpenHours    json.RawMessage `json:"open_hours"`
 }
 
@@ -90,9 +91,13 @@ func venuePublicDTO(venue models.Venue) VenuePublicDTO {
 		Extras:  make([]ExtraPublicDTO, 0, len(venue.Extras)),
 	}
 	for _, pitch := range venue.Pitches {
+		photoURL := ""
+		if base := strings.TrimRight(os.Getenv("ASSET_BASE_URL"), "/"); base != "" && pitch.PhotoR2Key != "" {
+			photoURL = base + "/" + strings.TrimLeft(pitch.PhotoR2Key, "/")
+		}
 		dto.Pitches = append(dto.Pitches, PitchPublicDTO{
 			ID: pitch.ID, Name: pitch.Name, Format: pitch.Format, Surface: pitch.Surface,
-			BasePriceTZS: pitch.BasePriceTZS, OpenHours: validJSON(pitch.OpenHours, "{}"),
+			BasePriceTZS: pitch.BasePriceTZS, PhotoURL: photoURL, OpenHours: validJSON(pitch.OpenHours, "{}"),
 		})
 		if dto.PriceFromTZS == 0 || pitch.BasePriceTZS < dto.PriceFromTZS {
 			dto.PriceFromTZS = pitch.BasePriceTZS
