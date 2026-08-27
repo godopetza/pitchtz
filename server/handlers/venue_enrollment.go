@@ -1,6 +1,7 @@
 package handlers
 
 import (
+	"context"
 	"crypto/rand"
 	"encoding/base32"
 	"errors"
@@ -199,6 +200,14 @@ func ApproveVenue(c *gin.Context) {
 	if err != nil {
 		utils.RespondError(c, http.StatusInternalServerError, "VENUE_APPROVE_FAILED", "could not approve the venue")
 		return
+	}
+
+	if owner.Email != nil {
+		approvedEmail := *owner.Email
+		approvedName := owner.Name
+		venueName := venue.Name
+		venueID := venue.ID
+		go services.SendVenueApprovedEmails(context.Background(), approvedEmail, approvedName, venueName, venueID)
 	}
 
 	response := gin.H{"venue_id": venue.ID, "status": models.VenueStatusActive, "owner_email": owner.Email}

@@ -1,6 +1,7 @@
 package handlers
 
 import (
+	"context"
 	"net/http"
 	"strings"
 	"time"
@@ -8,6 +9,7 @@ import (
 	"github.com/gin-gonic/gin"
 	"github.com/godopetza/pitchtz/initializers"
 	"github.com/godopetza/pitchtz/models"
+	"github.com/godopetza/pitchtz/services"
 	"github.com/godopetza/pitchtz/utils"
 	"github.com/google/uuid"
 )
@@ -66,11 +68,11 @@ func OwnerListVenues(c *gin.Context) {
 }
 
 type ownerPitchInput struct {
-	Name        string `json:"name" binding:"required,min=1,max=120"`
-	Format      string `json:"format" binding:"required,min=2,max=40"`
-	PriceTZS    int64  `json:"price_tzs" binding:"required,gt=0"`
-	PhotoR2Key  string `json:"photo_r2_key" binding:"max=200"`
-	Surface     string `json:"surface" binding:"max=40"`
+	Name       string `json:"name" binding:"required,min=1,max=120"`
+	Format     string `json:"format" binding:"required,min=2,max=40"`
+	PriceTZS   int64  `json:"price_tzs" binding:"required,gt=0"`
+	PhotoR2Key string `json:"photo_r2_key" binding:"max=200"`
+	Surface    string `json:"surface" binding:"max=40"`
 }
 
 func ownerOwnsVenue(c *gin.Context, ownerID uuid.UUID, venueID uuid.UUID) bool {
@@ -112,6 +114,12 @@ func OwnerCreatePitch(c *gin.Context) {
 	if err := initializers.DB.WithContext(c.Request.Context()).Create(&pitch).Error; err != nil {
 		utils.RespondError(c, http.StatusInternalServerError, "PITCH_CREATE_FAILED", "could not create the pitch")
 		return
+	}
+	var venue models.Venue
+	var owner models.User
+	if initializers.DB.First(&venue, "id = ?", venueID).Error == nil &&
+		initializers.DB.First(&owner, "id = ?", venue.OwnerID).Error == nil && owner.Email != nil {
+		go services.SendPitchLiveEmails(context.Background(), *owner.Email, owner.Name, venue.Name, pitch.Name, pitch.Format, pitch.BasePriceTZS, pitch.ID)
 	}
 	utils.RespondSuccess(c, http.StatusCreated, pitch, "Pitch added.")
 }

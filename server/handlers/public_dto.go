@@ -30,9 +30,10 @@ type PitchPublicDTO struct {
 }
 
 type VenuePhotoPublicDTO struct {
-	URL  string `json:"url,omitempty"`
-	Sort int    `json:"sort"`
-	Alt  string `json:"alt"`
+	URL   string `json:"url,omitempty"`
+	R2Key string `json:"r2_key,omitempty"`
+	Sort  int    `json:"sort"`
+	Alt   string `json:"alt"`
 }
 
 type ExtraPublicDTO struct {
@@ -109,7 +110,7 @@ func venuePublicDTO(venue models.Venue) VenuePublicDTO {
 		if assetBase != "" {
 			url = assetBase + "/" + strings.TrimLeft(photo.R2Key, "/")
 		}
-		dto.Photos = append(dto.Photos, VenuePhotoPublicDTO{URL: url, Sort: photo.Sort, Alt: photo.Alt})
+		dto.Photos = append(dto.Photos, VenuePhotoPublicDTO{URL: url, R2Key: photo.R2Key, Sort: photo.Sort, Alt: photo.Alt})
 	}
 	for _, extra := range venue.Extras {
 		if extra.Available {

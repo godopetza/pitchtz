@@ -6,6 +6,7 @@ import (
 
 	"github.com/godopetza/pitchtz/initializers"
 	"github.com/godopetza/pitchtz/models"
+	"github.com/google/uuid"
 	"gorm.io/gorm"
 )
 
@@ -14,7 +15,8 @@ import (
 // a live callback produce identical state.
 func SettleShareTransaction(ctx context.Context, transaction models.PaymentTransaction, settled bool, providerRef string) error {
 	now := time.Now().UTC()
-	return initializers.DB.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+	var confirmedBookingID *uuid.UUID
+	err := initializers.DB.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
 		status := "failed"
 		if settled {
 			status = "completed"
@@ -50,12 +52,20 @@ func SettleShareTransaction(ctx context.Context, transaction models.PaymentTrans
 		next := models.BookingStatusPartPaid
 		if paidTotal >= booking.TotalTZS {
 			next = models.BookingStatusConfirmed
+			if booking.Status != models.BookingStatusConfirmed {
+				id := booking.ID
+				confirmedBookingID = &id
+			}
 		}
 		// A hold that expired while the charge was in flight is revived here:
 		// the customer paid, so the customer keeps the slot.
 		return tx.Model(&models.Booking{}).Where("id = ?", booking.ID).
 			Updates(map[string]interface{}{"status": next, "cancelled_at": nil}).Error
 	})
+	if err == nil && confirmedBookingID != nil {
+		go NotifyBookingConfirmed(*confirmedBookingID)
+	}
+	return err
 }
 
 // ReconcilePendingCharges actively asks Malipo about charges stuck "pending"

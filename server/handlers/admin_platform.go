@@ -1,6 +1,7 @@
 package handlers
 
 import (
+	"context"
 	"fmt"
 	"net/http"
 	"strings"
@@ -9,6 +10,7 @@ import (
 	"github.com/gin-gonic/gin"
 	"github.com/godopetza/pitchtz/initializers"
 	"github.com/godopetza/pitchtz/models"
+	"github.com/godopetza/pitchtz/services"
 	"github.com/godopetza/pitchtz/utils"
 )
 
@@ -120,22 +122,22 @@ func AdminPlatformStats(c *gin.Context) {
 	}
 
 	utils.RespondSuccess(c, http.StatusOK, gin.H{
-		"bookings_total":     bookingsTotal,
-		"bookings_today":     bookingsToday,
-		"bookings_week":      bookingsWeek,
+		"bookings_total":       bookingsTotal,
+		"bookings_today":       bookingsToday,
+		"bookings_week":        bookingsWeek,
 		"bookings_funded_week": bookingsFundedWeek,
 		"bookings_failed_week": bookingsFailedWeek,
-		"bookings_prev_week": bookingsPrevWeek,
-		"revenue_paid_tzs":   revenuePaid,
-		"gmv_week_tzs":       gmvWeek,
-		"gmv_prev_week_tzs":  gmvPrevWeek,
-		"venues_active":      venuesActive,
-		"venues_pending":     venuesPending,
-		"disputes_open":      disputesOpen,
-		"players":            players,
-		"weekly_gmv":         weekly,
-		"payment_mix":        mixItems,
-		"top_venues":         topItems,
+		"bookings_prev_week":   bookingsPrevWeek,
+		"revenue_paid_tzs":     revenuePaid,
+		"gmv_week_tzs":         gmvWeek,
+		"gmv_prev_week_tzs":    gmvPrevWeek,
+		"venues_active":        venuesActive,
+		"venues_pending":       venuesPending,
+		"disputes_open":        disputesOpen,
+		"players":              players,
+		"weekly_gmv":           weekly,
+		"payment_mix":          mixItems,
+		"top_venues":           topItems,
 	}, "")
 }
 
@@ -211,6 +213,12 @@ func AdminSetVenueStatus(c *gin.Context) {
 		Where("id = ?", venueID).Update("status", status)
 	writeAudit(c, "venue.status", "venue", venueID.String(),
 		fmt.Sprintf("%s: %s -> %s", venue.Name, venue.Status, status))
+	if status == models.VenueStatusActive && venue.Status != models.VenueStatusActive {
+		var owner models.User
+		if err := initializers.DB.First(&owner, "id = ?", venue.OwnerID).Error; err == nil && owner.Email != nil {
+			go services.SendVenueApprovedEmails(context.Background(), *owner.Email, owner.Name, venue.Name, venue.ID)
+		}
+	}
 	utils.RespondSuccess(c, http.StatusOK, gin.H{"id": venueID, "status": status}, "Venue status updated.")
 }
 
