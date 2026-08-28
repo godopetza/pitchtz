@@ -347,7 +347,7 @@ func ListFixtures(c *gin.Context) {
 	items := make([]gin.H, 0, len(fixtures))
 	for _, fixture := range fixtures {
 		items = append(items, gin.H{
-			"id": fixture.ID, "league": fixture.League, "country": fixture.Country,
+			"id": fixture.ID, "sport": fixture.Sport, "league": fixture.League, "country": fixture.Country,
 			"home": fixture.Home, "away": fixture.Away,
 			"home_score": fixture.HomeScore, "away_score": fixture.AwayScore,
 			"kickoff_at": fixture.KickoffAt, "status": fixture.Status,

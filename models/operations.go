@@ -120,6 +120,7 @@ type Notification struct {
 type Fixture struct {
 	Base
 	ExternalID string    `gorm:"not null;uniqueIndex" json:"externalId"`
+	Sport      string    `gorm:"not null;default:football;index" json:"sport"`
 	League     string    `gorm:"not null;index" json:"league"`
 	Country    string    `gorm:"not null;index" json:"country"`
 	Home       string    `gorm:"not null" json:"home"`
