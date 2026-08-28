@@ -109,6 +109,8 @@ func (h *PublicAPI) EnrollVenue(c *gin.Context) {
 		utils.RespondError(c, http.StatusInternalServerError, "ENROLLMENT_FAILED", "could not submit the venue application")
 		return
 	}
+	go services.SendVenueApplicationEmail(venue.Name, venue.Area, strings.TrimSpace(input.OwnerName), email, venue.ID)
+
 	c.Header("Cache-Control", "no-store")
 	utils.RespondSuccess(c, http.StatusAccepted, gin.H{
 		"venue_id": venue.ID, "status": venue.Status,

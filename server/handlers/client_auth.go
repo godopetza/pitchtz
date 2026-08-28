@@ -143,6 +143,9 @@ func ClientEmailVerify(c *gin.Context) {
 
 	now := time.Now().UTC()
 	initializers.DB.Model(&models.EmailOTP{}).Where("id = ?", otp.ID).Update("consumed_at", now)
+	if user.EmailVerifiedAt == nil && user.Email != nil {
+		go services.SendSignupNoticeEmail(user.Name, *user.Email, "Client site (player)", "email code", user.ID)
+	}
 	userUpdates := map[string]interface{}{"last_login_provider": "email", "last_login_at": now}
 	if user.EmailVerifiedAt == nil {
 		userUpdates["email_verified_at"] = now

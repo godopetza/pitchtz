@@ -109,6 +109,17 @@ func NewRouterWithDeps(deps Deps) *gin.Engine {
 		v1.GET("/pay/shares/:id", handlers.GetPublicShare)
 		v1.POST("/pay/shares/:id/pay", clientAuthLimiter.Middleware(), handlers.PayPublicShare)
 
+		// Teams: explore is public (personalised when signed in); actions need auth.
+		v1.GET("/teams", middleware.OptionalClient(), handlers.ListTeams)
+		v1.GET("/teams/:id", middleware.OptionalClient(), handlers.GetTeam)
+		v1.GET("/challenges", handlers.ListChallenges)
+		v1.POST("/teams", middleware.RequireClient(), handlers.CreateTeam)
+		v1.GET("/me/teams", middleware.RequireClient(), handlers.MyTeams)
+		v1.POST("/teams/:id/join", middleware.RequireClient(), handlers.RequestJoinTeam)
+		v1.POST("/teams/:id/decide", middleware.RequireClient(), handlers.DecideJoinRequest)
+		v1.POST("/teams/:id/challenges", middleware.RequireClient(), handlers.CreateChallenge)
+		v1.POST("/challenges/:id/accept", middleware.RequireClient(), handlers.AcceptChallenge)
+
 		// Shop: public storefront + customer orders.
 		v1.GET("/shop/products", handlers.ListShopProducts)
 		v1.POST("/shop/orders", middleware.RequireClient(), handlers.CreateShopOrder)
@@ -164,6 +175,11 @@ func NewRouterWithDeps(deps Deps) *gin.Engine {
 		protectedOwner.POST("/venues/:id/pitches", handlers.OwnerCreatePitch)
 		protectedOwner.PATCH("/pitches/:id", handlers.OwnerUpdatePitch)
 		protectedOwner.GET("/venues/:id/bookings", handlers.OwnerVenueBookings)
+		protectedOwner.GET("/venues/:id/payouts", handlers.OwnerVenuePayouts)
+		protectedOwner.POST("/venues/:id/photos", handlers.OwnerAddVenuePhoto)
+		protectedOwner.PATCH("/venues/:id/photos/order", handlers.OwnerReorderVenuePhotos)
+		protectedOwner.PATCH("/venues/:id/photos/alt", handlers.OwnerSetVenuePhotoAlt)
+		protectedOwner.DELETE("/venues/:id/photos", handlers.OwnerDeleteVenuePhoto)
 		protectedOwner.GET("/venues/:id/extras", handlers.OwnerListExtras)
 		protectedOwner.POST("/venues/:id/extras", handlers.OwnerCreateExtra)
 		protectedOwner.PATCH("/extras/:id", handlers.OwnerUpdateExtra)

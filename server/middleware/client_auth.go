@@ -47,3 +47,21 @@ func RequireClient() gin.HandlerFunc {
 		c.Next()
 	}
 }
+
+// OptionalClient parses a bearer token when one is present, so public pages
+// can personalise (e.g. team membership) — but never rejects anonymous
+// visitors.
+func OptionalClient() gin.HandlerFunc {
+	return func(c *gin.Context) {
+		header := strings.TrimSpace(c.GetHeader("Authorization"))
+		parts := strings.Fields(header)
+		if len(parts) == 2 && strings.EqualFold(parts[0], "Bearer") {
+			if claims, err := utils.ParseClientToken(parts[1]); err == nil {
+				if userID, err := uuid.Parse(claims.Subject); err == nil {
+					c.Set(ClientUserIDKey, userID)
+				}
+			}
+		}
+		c.Next()
+	}
+}

@@ -62,6 +62,7 @@ type VenuePublicDTO struct {
 	AutoConfirm       bool                  `json:"auto_confirm"`
 	PriceFromTZS      int64                 `json:"price_from_tzs"`
 	Pitches           []PitchPublicDTO      `json:"pitches"`
+	Status            string                `json:"status"`
 	Photos            []VenuePhotoPublicDTO `json:"photos"`
 	Extras            []ExtraPublicDTO      `json:"extras"`
 }
@@ -92,7 +93,7 @@ func venuePublicDTO(venue models.Venue) VenuePublicDTO {
 		Pitches: make([]PitchPublicDTO, 0, len(venue.Pitches)),
 		Photos:  make([]VenuePhotoPublicDTO, 0, len(venue.Photos)),
 		Extras:  make([]ExtraPublicDTO, 0, len(venue.Extras)),
-	}
+		Status:  venue.Status}
 	for _, pitch := range venue.Pitches {
 		photoURL := ""
 		if base := strings.TrimRight(os.Getenv("ASSET_BASE_URL"), "/"); base != "" && pitch.PhotoR2Key != "" {

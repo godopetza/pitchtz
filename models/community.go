@@ -19,10 +19,27 @@ type Team struct {
 	Tag        string     `gorm:"not null;index" json:"tag"`
 	CaptainID  uuid.UUID  `gorm:"type:uuid;not null;index" json:"captainId"`
 	CityID     uuid.UUID  `gorm:"type:uuid;not null;index" json:"cityId"`
+	Area       string     `json:"area"`
+	Bio        string     `json:"bio"`
+	BadgeColor string     `gorm:"not null;default:'#0e3b2c'" json:"badgeColor"`
 	Format     string     `gorm:"not null;index" json:"format"`
 	Recruiting bool       `gorm:"not null;default:false" json:"recruiting"`
 	Needs      string     `json:"needs"`
 	LeagueID   *uuid.UUID `gorm:"type:uuid;index" json:"leagueId,omitempty"`
+}
+
+// Challenge is an open "who wants a game?" post from a team: any other team
+// in the city can accept it, which creates a Match between the two.
+type Challenge struct {
+	Base
+	TeamID           uuid.UUID  `gorm:"type:uuid;not null;index" json:"teamId"`
+	CityID           uuid.UUID  `gorm:"type:uuid;not null;index" json:"cityId"`
+	Format           string     `gorm:"not null" json:"format"`
+	Note             string     `json:"note"`
+	ProposedAt       *time.Time `json:"proposedAt,omitempty"`
+	Status           string     `gorm:"not null;default:open;index" json:"status"`
+	AcceptedByTeamID *uuid.UUID `gorm:"type:uuid" json:"acceptedByTeamId,omitempty"`
+	MatchID          *uuid.UUID `gorm:"type:uuid" json:"matchId,omitempty"`
 }
 
 type TeamMember struct {

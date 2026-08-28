@@ -190,16 +190,24 @@ func OwnerVenueBookings(c *gin.Context) {
 		PaidTZS      int64
 	}
 	var rows []row
-	initializers.DB.WithContext(c.Request.Context()).
+	query := initializers.DB.WithContext(c.Request.Context()).
 		Table("bookings").
 		Select(`bookings.*, pitches.name AS pitch_name,
 			COALESCE(users.name, '') AS customer_name,
 			COALESCE((SELECT SUM(amount_tzs) FROM payment_shares WHERE payment_shares.booking_id = bookings.id AND payment_shares.status = 'paid'), 0) AS paid_tzs`).
 		Joins("JOIN pitches ON pitches.id = bookings.pitch_id").
 		Joins("LEFT JOIN users ON users.id = bookings.user_id").
-		Where("pitches.venue_id = ? AND bookings.ends_at >= ? AND bookings.status <> ?",
-			venueID, time.Now().UTC().Add(-24*time.Hour), models.BookingStatusCancelled).
-		Order("bookings.starts_at ASC").Limit(40).Scan(&rows)
+		Where("pitches.venue_id = ?", venueID)
+	if c.Query("scope") == "all" {
+		// Ledger view: two months of history, newest first, cancelled included.
+		query = query.Where("bookings.ends_at >= ?", time.Now().UTC().Add(-60*24*time.Hour)).
+			Order("bookings.starts_at DESC").Limit(120)
+	} else {
+		query = query.Where("bookings.ends_at >= ? AND bookings.status <> ?",
+			time.Now().UTC().Add(-24*time.Hour), models.BookingStatusCancelled).
+			Order("bookings.starts_at ASC").Limit(40)
+	}
+	query.Scan(&rows)
 
 	items := make([]gin.H, 0, len(rows))
 	for _, r := range rows {
@@ -210,4 +218,68 @@ func OwnerVenueBookings(c *gin.Context) {
 		})
 	}
 	utils.RespondSuccess(c, http.StatusOK, items, "")
+}
+
+// OwnerVenuePayouts summarises real money movement for one venue: gross
+// collected via PitchTZ, the platform fee, the owner's net, and a weekly
+// breakdown — all from settled payment shares, never estimates.
+func OwnerVenuePayouts(c *gin.Context) {
+	ownerID, ok := ownerUserID(c)
+	if !ok {
+		return
+	}
+	venueID, ok := parseID(c, "id")
+	if !ok {
+		return
+	}
+	if !ownerOwnsVenue(c, ownerID, venueID) {
+		utils.RespondError(c, http.StatusForbidden, "NOT_YOUR_VENUE", "this venue is not on your account")
+		return
+	}
+	var venue models.Venue
+	if err := initializers.DB.WithContext(c.Request.Context()).First(&venue, "id = ?", venueID).Error; err != nil {
+		utils.RespondError(c, http.StatusNotFound, "VENUE_NOT_FOUND", "venue was not found")
+		return
+	}
+
+	type bucket struct {
+		Week  time.Time
+		Gross int64
+		Count int64
+	}
+	var weekly []bucket
+	initializers.DB.WithContext(c.Request.Context()).
+		Table("payment_shares").
+		Select("date_trunc('week', payment_shares.paid_at) AS week, SUM(payment_shares.amount_tzs) AS gross, COUNT(DISTINCT payment_shares.booking_id) AS count").
+		Joins("JOIN bookings ON bookings.id = payment_shares.booking_id").
+		Joins("JOIN pitches ON pitches.id = bookings.pitch_id").
+		Where("pitches.venue_id = ? AND payment_shares.status = 'paid' AND payment_shares.paid_at >= ?",
+			venueID, time.Now().UTC().Add(-8*7*24*time.Hour)).
+		Group("week").Order("week DESC").Scan(&weekly)
+
+	var grossTotal int64
+	initializers.DB.WithContext(c.Request.Context()).
+		Table("payment_shares").
+		Joins("JOIN bookings ON bookings.id = payment_shares.booking_id").
+		Joins("JOIN pitches ON pitches.id = bookings.pitch_id").
+		Where("pitches.venue_id = ? AND payment_shares.status = 'paid'", venueID).
+		Select("COALESCE(SUM(payment_shares.amount_tzs), 0)").Scan(&grossTotal)
+
+	feeRate := venue.FeeRateBPS
+	if feeRate <= 0 {
+		feeRate = 1000
+	}
+	feeTotal := grossTotal * int64(feeRate) / 10000
+	weeks := make([]gin.H, 0, len(weekly))
+	for _, w := range weekly {
+		fee := w.Gross * int64(feeRate) / 10000
+		weeks = append(weeks, gin.H{
+			"week_start": w.Week, "gross_tzs": w.Gross, "fee_tzs": fee,
+			"net_tzs": w.Gross - fee, "bookings": w.Count,
+		})
+	}
+	utils.RespondSuccess(c, http.StatusOK, gin.H{
+		"gross_tzs": grossTotal, "fee_tzs": feeTotal, "net_tzs": grossTotal - feeTotal,
+		"fee_rate_bps": feeRate, "weeks": weeks,
+	}, "")
 }

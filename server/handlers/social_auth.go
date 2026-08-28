@@ -22,6 +22,7 @@ import (
 	"github.com/gin-gonic/gin"
 	"github.com/godopetza/pitchtz/initializers"
 	"github.com/godopetza/pitchtz/models"
+	"github.com/godopetza/pitchtz/services"
 	"github.com/godopetza/pitchtz/utils"
 	"github.com/golang-jwt/jwt/v5"
 	"github.com/google/uuid"
@@ -243,6 +244,7 @@ func finishExistingSocialLogin(c *gin.Context, audience, email, provider, name, 
 					return
 				}
 			}
+			go services.SendSignupNoticeEmail(user.Name, email, "Venue House (owner)", provider, user.ID)
 		}
 		var credential models.OwnerCredential
 		if initializers.DB.WithContext(c.Request.Context()).First(&credential, "user_id = ?", user.ID).Error != nil {
@@ -303,6 +305,7 @@ func finishClientSocialLogin(c *gin.Context, email, provider, name, avatarURL st
 				return
 			}
 		}
+		go services.SendSignupNoticeEmail(user.Name, email, "Client site (player)", provider, user.ID)
 	}
 	token, _, err := utils.IssueClientToken(user.ID)
 	if err != nil {

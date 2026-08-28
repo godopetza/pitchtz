@@ -190,3 +190,98 @@ func eatZone() *time.Location {
 	}
 	return time.FixedZone("EAT", 3*3600)
 }
+
+// SendSignupNoticeEmail tells the superadmin a new person joined, and through
+// which door: client site, venue house, or a venue application.
+func SendSignupNoticeEmail(name, email, portal, provider string, userID uuid.UUID) {
+	admin := adminNotifyEmail()
+	if admin == "" || strings.EqualFold(admin, email) {
+		return
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+	if strings.TrimSpace(name) == "" {
+		name = strings.Split(email, "@")[0]
+	}
+	body := fmt.Sprintf(`<p style="margin:0 0 12px">A new account was just created.</p>%s`,
+		factRows([][2]string{{"Name", name}, {"Email", email}, {"Portal", portal}, {"Method", provider}}))
+	sendBranded(ctx, admin, fmt.Sprintf("New sign-up (%s): %s", portal, name),
+		fmt.Sprintf("New account:\n%s <%s>\nPortal: %s\nMethod: %s", name, email, portal, provider),
+		brandedEmail{Preheader: "New sign-up: " + name, Eyebrow: "Platform event", Title: "The community is growing.", BodyHTML: body, ActionLabel: "Open Superadmin", ActionURL: adminAppURL(), Footnote: "Superadmin copy of a platform event."},
+		"signup-"+userID.String())
+}
+
+// SendVenueApplicationEmail tells the superadmin a new venue application
+// arrived and needs review.
+func SendVenueApplicationEmail(venueName, area, ownerName, ownerEmail string, venueID uuid.UUID) {
+	admin := adminNotifyEmail()
+	if admin == "" {
+		return
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+	body := fmt.Sprintf(`<p style="margin:0 0 12px">A new venue application is waiting for review.</p>%s`,
+		factRows([][2]string{{"Venue", venueName}, {"Area", area}, {"Owner", ownerName}, {"Owner email", ownerEmail}}))
+	sendBranded(ctx, admin, "New venue application: "+venueName,
+		fmt.Sprintf("New venue application:\n%s (%s)\nOwner: %s <%s>\n\nReview it: %s", venueName, area, ownerName, ownerEmail, adminAppURL()),
+		brandedEmail{Preheader: "Venue application: " + venueName, Eyebrow: "Needs review", Title: "A venue wants to join.", BodyHTML: body, ActionLabel: "Review in Superadmin", ActionURL: adminAppURL(), Footnote: "Superadmin copy of a platform event."},
+		"venue-application-"+venueID.String())
+}
+
+func teamsURL() string {
+	return clientAppURL() + "/teams"
+}
+
+// SendTeamJoinRequestEmail: a player knocked — the captain decides.
+func SendTeamJoinRequestEmail(captainEmail, captainName, playerName, teamName string, teamID uuid.UUID) {
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+	if strings.TrimSpace(captainName) == "" {
+		captainName = "Captain"
+	}
+	body := fmt.Sprintf(`<p style="margin:0 0 12px">Hello <strong style="color:#17201a">%s</strong>, <strong style="color:#17201a">%s</strong> wants to join <strong style="color:#17201a">%s</strong>.</p><p style="margin:0">Open your team page to accept or decline. Timu imara huanza na walinzi wazuri wa mlango.</p>`,
+		html.EscapeString(captainName), html.EscapeString(playerName), html.EscapeString(teamName))
+	sendBranded(ctx, captainEmail, playerName+" wants to join "+teamName,
+		fmt.Sprintf("Hello %s,\n\n%s wants to join %s.\n\nAccept or decline: %s\n\nBen\nPitchTZ Founder", captainName, playerName, teamName, teamsURL()),
+		brandedEmail{Preheader: playerName + " asked to join " + teamName, Eyebrow: "Join request", Title: "A player wants in.", BodyHTML: body, ActionLabel: "Review request", ActionURL: teamsURL(), Footnote: "You are receiving this because you are the captain of a PitchTZ team."},
+		fmt.Sprintf("team-join-%s-%s", teamID.String(), strings.ToLower(playerName)))
+}
+
+// SendTeamDecisionEmail tells the player whether they made the squad.
+func SendTeamDecisionEmail(playerEmail, playerName, teamName string, accepted bool, teamID uuid.UUID) {
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+	if strings.TrimSpace(playerName) == "" {
+		playerName = "there"
+	}
+	if accepted {
+		body := fmt.Sprintf(`<p style="margin:0 0 12px">Hello <strong style="color:#17201a">%s</strong>, you're in — <strong style="color:#17201a">%s</strong> accepted your request. Karibu kwenye timu!</p>`,
+			html.EscapeString(playerName), html.EscapeString(teamName))
+		sendBranded(ctx, playerEmail, "You made the squad: "+teamName,
+			fmt.Sprintf("Hello %s,\n\nYou're in — %s accepted your request. Karibu kwenye timu!\n\n%s\n\nBen\nPitchTZ Founder", playerName, teamName, teamsURL()),
+			brandedEmail{Preheader: "Accepted into " + teamName, Eyebrow: "Welcome to the squad", Title: "You made the team.", BodyHTML: body, ActionLabel: "See your team", ActionURL: teamsURL(), Footnote: "You are receiving this because you asked to join a PitchTZ team."},
+			"team-accept-"+teamID.String()+"-"+strings.ToLower(playerName))
+		return
+	}
+	body := fmt.Sprintf(`<p style="margin:0 0 12px">Hello <strong style="color:#17201a">%s</strong>, <strong style="color:#17201a">%s</strong> could not take you on this time. Plenty of squads are recruiting — keep exploring.</p>`,
+		html.EscapeString(playerName), html.EscapeString(teamName))
+	sendBranded(ctx, playerEmail, "About your request to "+teamName,
+		fmt.Sprintf("Hello %s,\n\n%s could not take you on this time. Plenty of squads are recruiting — keep exploring: %s\n\nBen\nPitchTZ Founder", playerName, teamName, teamsURL()),
+		brandedEmail{Preheader: "Update on " + teamName, Eyebrow: "Join request", Title: "Not this time — keep playing.", BodyHTML: body, ActionLabel: "Explore other teams", ActionURL: teamsURL(), Footnote: "You are receiving this because you asked to join a PitchTZ team."},
+		"team-decline-"+teamID.String()+"-"+strings.ToLower(playerName))
+}
+
+// SendChallengeAcceptedEmail goes to both captains when a game is on.
+func SendChallengeAcceptedEmail(captainEmail, captainName, ownTeam, opponentTeam string, matchID uuid.UUID) {
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+	if strings.TrimSpace(captainName) == "" {
+		captainName = "Captain"
+	}
+	body := fmt.Sprintf(`<p style="margin:0 0 12px">Hello <strong style="color:#17201a">%s</strong>, it's on — <strong style="color:#17201a">%s</strong> vs <strong style="color:#17201a">%s</strong>.</p><p style="margin:0">Agree a time with the other captain and book a pitch on PitchTZ to lock it in.</p>`,
+		html.EscapeString(captainName), html.EscapeString(ownTeam), html.EscapeString(opponentTeam))
+	sendBranded(ctx, captainEmail, fmt.Sprintf("Game on: %s vs %s", ownTeam, opponentTeam),
+		fmt.Sprintf("Hello %s,\n\nIt's on — %s vs %s.\n\nAgree a time and book a pitch: %s\n\nBen\nPitchTZ Founder", captainName, ownTeam, opponentTeam, clientAppURL()),
+		brandedEmail{Preheader: ownTeam + " vs " + opponentTeam, Eyebrow: "Challenge accepted", Title: "Game on.", BodyHTML: body, ActionLabel: "Book the pitch", ActionURL: clientAppURL(), Footnote: "You are receiving this because your team is in a PitchTZ challenge."},
+		"challenge-"+matchID.String()+"-"+strings.ToLower(ownTeam))
+}
