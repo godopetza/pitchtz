@@ -18,6 +18,7 @@ func main() {
 		if err := initializers.SyncDatabase(); err != nil {
 			log.Fatalf("database migrate: %v", err)
 		}
+		initializers.SeedCities()
 		created, err := initializers.BootstrapAdmin()
 		if err != nil {
 			log.Fatalf("bootstrap admin: %v", err)
