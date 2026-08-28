@@ -38,6 +38,7 @@ func SyncDatabase() error {
 		&models.League{},
 		&models.Team{},
 		&models.Challenge{},
+		&models.PitchPhoto{},
 		&models.TeamMember{},
 		&models.Match{},
 		&models.Standing{},

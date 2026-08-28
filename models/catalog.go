@@ -78,6 +78,16 @@ type Pitch struct {
 	// active = bookable; closed = switched off by the owner; suspended = by admin.
 	Status    string         `gorm:"not null;default:active;index" json:"status"`
 	OpenHours datatypes.JSON `gorm:"type:jsonb;not null;default:'{}'" json:"openHours"`
+
+	Photos []PitchPhoto `gorm:"foreignKey:PitchID" json:"photos"`
+}
+
+// PitchPhoto lets one pitch carry a full gallery; Sort 0 is the lead image.
+type PitchPhoto struct {
+	Base
+	PitchID uuid.UUID `gorm:"type:uuid;not null;index" json:"pitchId"`
+	R2Key   string    `gorm:"not null" json:"r2Key"`
+	Sort    int       `gorm:"not null;default:0" json:"sort"`
 }
 
 type SlotBlock struct {

@@ -49,6 +49,7 @@ func (s *GormStore) ListVenues(ctx context.Context, filter VenueFilter) ([]model
 	err := query.
 		Preload("City").
 		Preload("Pitches").
+		Preload("Pitches.Photos", func(db *gorm.DB) *gorm.DB { return db.Order("pitch_photos.sort ASC") }).
 		Preload("Photos", func(db *gorm.DB) *gorm.DB { return db.Order("sort ASC") }).
 		Preload("Extras", "available = ?", true).
 		Limit(100).
@@ -62,6 +63,7 @@ func (s *GormStore) GetVenue(ctx context.Context, id uuid.UUID) (models.Venue, e
 		Where("id = ? AND status = ?", id, models.VenueStatusActive).
 		Preload("City").
 		Preload("Pitches").
+		Preload("Pitches.Photos", func(db *gorm.DB) *gorm.DB { return db.Order("pitch_photos.sort ASC") }).
 		Preload("Photos", func(db *gorm.DB) *gorm.DB { return db.Order("sort ASC") }).
 		Preload("Extras", "available = ?", true).
 		First(&venue).Error

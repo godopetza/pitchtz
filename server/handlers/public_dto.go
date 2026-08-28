@@ -26,6 +26,7 @@ type PitchPublicDTO struct {
 	Surface      string          `json:"surface"`
 	BasePriceTZS int64           `json:"base_price_tzs"`
 	PhotoURL     string          `json:"photo_url,omitempty"`
+	PhotoURLs    []string        `json:"photo_urls,omitempty"`
 	Status       string          `json:"status"`
 	OpenHours    json.RawMessage `json:"open_hours"`
 }
@@ -95,13 +96,26 @@ func venuePublicDTO(venue models.Venue) VenuePublicDTO {
 		Extras:  make([]ExtraPublicDTO, 0, len(venue.Extras)),
 		Status:  venue.Status}
 	for _, pitch := range venue.Pitches {
+		base := strings.TrimRight(os.Getenv("ASSET_BASE_URL"), "/")
+		photoURLs := make([]string, 0, len(pitch.Photos)+1)
+		if base != "" {
+			for _, photo := range pitch.Photos {
+				if photo.R2Key != "" {
+					photoURLs = append(photoURLs, base+"/"+strings.TrimLeft(photo.R2Key, "/"))
+				}
+			}
+			// Legacy single photo stays the lead image if no gallery rows exist.
+			if len(photoURLs) == 0 && pitch.PhotoR2Key != "" {
+				photoURLs = append(photoURLs, base+"/"+strings.TrimLeft(pitch.PhotoR2Key, "/"))
+			}
+		}
 		photoURL := ""
-		if base := strings.TrimRight(os.Getenv("ASSET_BASE_URL"), "/"); base != "" && pitch.PhotoR2Key != "" {
-			photoURL = base + "/" + strings.TrimLeft(pitch.PhotoR2Key, "/")
+		if len(photoURLs) > 0 {
+			photoURL = photoURLs[0]
 		}
 		dto.Pitches = append(dto.Pitches, PitchPublicDTO{
 			ID: pitch.ID, Name: pitch.Name, Format: pitch.Format, Surface: pitch.Surface,
-			BasePriceTZS: pitch.BasePriceTZS, PhotoURL: photoURL, Status: pitch.Status, OpenHours: validJSON(pitch.OpenHours, "{}"),
+			BasePriceTZS: pitch.BasePriceTZS, PhotoURL: photoURL, PhotoURLs: photoURLs, Status: pitch.Status, OpenHours: validJSON(pitch.OpenHours, "{}"),
 		})
 		if dto.PriceFromTZS == 0 || pitch.BasePriceTZS < dto.PriceFromTZS {
 			dto.PriceFromTZS = pitch.BasePriceTZS

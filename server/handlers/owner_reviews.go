@@ -68,12 +68,33 @@ func OwnerListVenues(c *gin.Context) {
 }
 
 type ownerPitchInput struct {
-	Name       string `json:"name" binding:"required,min=1,max=120"`
-	Format     string `json:"format" binding:"required,min=2,max=40"`
-	PriceTZS   int64  `json:"price_tzs" binding:"required,gt=0"`
-	PhotoR2Key string `json:"photo_r2_key" binding:"max=200"`
-	Surface    string `json:"surface" binding:"max=40"`
-	Status     string `json:"status" binding:"omitempty,oneof=active closed"`
+	Name        string   `json:"name" binding:"required,min=1,max=120"`
+	Format      string   `json:"format" binding:"required,min=2,max=40"`
+	PriceTZS    int64    `json:"price_tzs" binding:"required,gt=0"`
+	PhotoR2Key  string   `json:"photo_r2_key" binding:"max=200"`
+	PhotoR2Keys []string `json:"photo_r2_keys" binding:"max=12,dive,max=200"`
+	Surface     string   `json:"surface" binding:"max=40"`
+	Status      string   `json:"status" binding:"omitempty,oneof=active closed"`
+}
+
+// syncPitchPhotos replaces a pitch's photo gallery. The first key doubles as
+// the legacy single photo so older clients keep their lead image.
+func syncPitchPhotos(c *gin.Context, pitchID uuid.UUID, keys []string) {
+	clean := make([]string, 0, len(keys))
+	for _, key := range keys {
+		if trimmed := strings.TrimSpace(key); trimmed != "" {
+			clean = append(clean, trimmed)
+		}
+	}
+	if len(clean) == 0 {
+		return
+	}
+	initializers.DB.WithContext(c.Request.Context()).Where("pitch_id = ?", pitchID).Delete(&models.PitchPhoto{})
+	for index, key := range clean {
+		initializers.DB.WithContext(c.Request.Context()).Create(&models.PitchPhoto{PitchID: pitchID, R2Key: key, Sort: index})
+	}
+	initializers.DB.WithContext(c.Request.Context()).Model(&models.Pitch{}).
+		Where("id = ?", pitchID).Update("photo_r2_key", clean[0])
 }
 
 func ownerOwnsVenue(c *gin.Context, ownerID uuid.UUID, venueID uuid.UUID) bool {
@@ -116,6 +137,11 @@ func OwnerCreatePitch(c *gin.Context) {
 		utils.RespondError(c, http.StatusInternalServerError, "PITCH_CREATE_FAILED", "could not create the pitch")
 		return
 	}
+	keys := input.PhotoR2Keys
+	if len(keys) == 0 && strings.TrimSpace(input.PhotoR2Key) != "" {
+		keys = []string{input.PhotoR2Key}
+	}
+	syncPitchPhotos(c, pitch.ID, keys)
 	var venue models.Venue
 	var owner models.User
 	if initializers.DB.First(&venue, "id = ?", venueID).Error == nil &&
@@ -165,6 +191,11 @@ func OwnerUpdatePitch(c *gin.Context) {
 		updates["status"] = input.Status
 	}
 	initializers.DB.WithContext(c.Request.Context()).Model(&models.Pitch{}).Where("id = ?", pitchID).Updates(updates)
+	keys := input.PhotoR2Keys
+	if len(keys) == 0 && strings.TrimSpace(input.PhotoR2Key) != "" {
+		keys = []string{input.PhotoR2Key}
+	}
+	syncPitchPhotos(c, pitchID, keys)
 	utils.RespondSuccess(c, http.StatusOK, gin.H{"updated": true}, "Pitch updated.")
 }
 
