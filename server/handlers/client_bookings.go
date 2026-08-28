@@ -124,6 +124,10 @@ func ClientCreateBooking(c *gin.Context) {
 		utils.RespondError(c, http.StatusNotFound, "VENUE_NOT_AVAILABLE", "this venue is not taking bookings")
 		return
 	}
+	if !venueOpenAt(venue, input.StartsAt, input.EndsAt) {
+		utils.RespondError(c, http.StatusConflict, "OUTSIDE_OPEN_HOURS", "the venue is closed at that time")
+		return
+	}
 
 	hours := input.EndsAt.Sub(input.StartsAt).Hours()
 	pitchFee := int64(math.Round(float64(pitch.BasePriceTZS) * hours))

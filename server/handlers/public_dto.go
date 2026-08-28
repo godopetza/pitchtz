@@ -64,6 +64,7 @@ type VenuePublicDTO struct {
 	PriceFromTZS      int64                 `json:"price_from_tzs"`
 	Pitches           []PitchPublicDTO      `json:"pitches"`
 	Status            string                `json:"status"`
+	OpenHours         json.RawMessage       `json:"open_hours"`
 	Photos            []VenuePhotoPublicDTO `json:"photos"`
 	Extras            []ExtraPublicDTO      `json:"extras"`
 }
@@ -94,7 +95,7 @@ func venuePublicDTO(venue models.Venue) VenuePublicDTO {
 		Pitches: make([]PitchPublicDTO, 0, len(venue.Pitches)),
 		Photos:  make([]VenuePhotoPublicDTO, 0, len(venue.Photos)),
 		Extras:  make([]ExtraPublicDTO, 0, len(venue.Extras)),
-		Status:  venue.Status}
+		Status:  venue.Status, OpenHours: validJSON(venue.OpenHours, "{}")}
 	for _, pitch := range venue.Pitches {
 		base := strings.TrimRight(os.Getenv("ASSET_BASE_URL"), "/")
 		photoURLs := make([]string, 0, len(pitch.Photos)+1)

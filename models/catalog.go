@@ -58,6 +58,9 @@ type Venue struct {
 	Amenities         datatypes.JSON `gorm:"type:jsonb;not null;default:'[]'" json:"amenities"`
 	Rules             datatypes.JSON `gorm:"type:jsonb;not null;default:'[]'" json:"rules"`
 	PeakMultiplierBPS int            `gorm:"not null;default:10000" json:"peakMultiplierBps"`
+	// Weekly opening hours {"mon":{"open":"08:00","close":"23:00"},...};
+	// a missing day means closed, an empty object means the default 08–23.
+	OpenHours         datatypes.JSON `gorm:"type:jsonb;not null;default:'{}'" json:"openHours"`
 	CancelWindowHours int            `gorm:"not null;default:24" json:"cancelWindowHours"`
 	AutoConfirm       bool           `gorm:"not null;default:false" json:"autoConfirm"`
 

@@ -181,6 +181,7 @@ func NewRouterWithDeps(deps Deps) *gin.Engine {
 		protectedOwner.POST("/venues/:id/photos", handlers.OwnerAddVenuePhoto)
 		protectedOwner.PATCH("/venues/:id/photos/order", handlers.OwnerReorderVenuePhotos)
 		protectedOwner.PATCH("/venues/:id/photos/alt", handlers.OwnerSetVenuePhotoAlt)
+		protectedOwner.PATCH("/venues/:id/hours", handlers.OwnerSetVenueHours)
 		protectedOwner.DELETE("/venues/:id/photos", handlers.OwnerDeleteVenuePhoto)
 		protectedOwner.GET("/venues/:id/extras", handlers.OwnerListExtras)
 		protectedOwner.POST("/venues/:id/extras", handlers.OwnerCreateExtra)
