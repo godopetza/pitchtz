@@ -10,6 +10,7 @@ import (
 
 	"github.com/gin-gonic/gin"
 	"github.com/godopetza/pitchtz/initializers"
+	"github.com/godopetza/pitchtz/models"
 	"github.com/godopetza/pitchtz/store"
 	"github.com/godopetza/pitchtz/utils"
 	"github.com/google/uuid"
@@ -334,4 +335,23 @@ func respondStoreError(c *gin.Context, err error, resource string) {
 		return
 	}
 	utils.RespondError(c, http.StatusInternalServerError, "INTERNAL_ERROR", "could not load "+resource)
+}
+
+// ListFixtures serves the scraped match board: Tanzania first, then the top
+// European leagues, next three days.
+func ListFixtures(c *gin.Context) {
+	var fixtures []models.Fixture
+	initializers.DB.WithContext(c.Request.Context()).
+		Where("kickoff_at >= ? AND kickoff_at <= ?", time.Now().UTC().Add(-3*time.Hour), time.Now().UTC().Add(72*time.Hour)).
+		Order("kickoff_at ASC").Limit(80).Find(&fixtures)
+	items := make([]gin.H, 0, len(fixtures))
+	for _, fixture := range fixtures {
+		items = append(items, gin.H{
+			"id": fixture.ID, "league": fixture.League, "country": fixture.Country,
+			"home": fixture.Home, "away": fixture.Away,
+			"home_score": fixture.HomeScore, "away_score": fixture.AwayScore,
+			"kickoff_at": fixture.KickoffAt, "status": fixture.Status,
+		})
+	}
+	utils.RespondSuccess(c, http.StatusOK, items, "")
 }

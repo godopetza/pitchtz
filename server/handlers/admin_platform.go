@@ -287,3 +287,41 @@ func AdminSetPitchStatus(c *gin.Context) {
 		fmt.Sprintf("%s: %s -> %s", pitch.Name, pitch.Status, input.Status))
 	utils.RespondSuccess(c, http.StatusOK, gin.H{"id": pitchID, "status": input.Status}, "Pitch status updated.")
 }
+
+// AdminListPlatformUsers backs the "Registered users" drill-down: every
+// player and owner account with its activity, newest first, searchable.
+func AdminListPlatformUsers(c *gin.Context) {
+	type row struct {
+		models.User
+		BookingsCount int64
+		TeamsCount    int64
+	}
+	query := initializers.DB.WithContext(c.Request.Context()).
+		Table("users").
+		Select(`users.*,
+			COALESCE((SELECT COUNT(*) FROM bookings WHERE bookings.user_id = users.id), 0) AS bookings_count,
+			COALESCE((SELECT COUNT(*) FROM team_members WHERE team_members.user_id = users.id AND team_members.status = 'active'), 0) AS teams_count`)
+	if search := strings.TrimSpace(c.Query("q")); search != "" {
+		like := "%" + strings.ToLower(search) + "%"
+		query = query.Where("LOWER(users.name) LIKE ? OR LOWER(users.email) LIKE ?", like, like)
+	}
+	if role := strings.TrimSpace(c.Query("role")); role != "" {
+		query = query.Where("users.role = ?", role)
+	}
+	var rows []row
+	query.Order("users.created_at DESC").Limit(200).Scan(&rows)
+
+	items := make([]gin.H, 0, len(rows))
+	for _, r := range rows {
+		email := ""
+		if r.Email != nil {
+			email = *r.Email
+		}
+		items = append(items, gin.H{
+			"id": r.ID, "name": r.Name, "email": email, "role": r.Role,
+			"provider": r.AuthProvider, "avatar_url": r.AvatarURL,
+			"created_at": r.CreatedAt, "bookings": r.BookingsCount, "teams": r.TeamsCount,
+		})
+	}
+	utils.RespondSuccess(c, http.StatusOK, items, "")
+}

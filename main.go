@@ -38,6 +38,7 @@ func main() {
 	}
 
 	services.StartHoldSweeper()
+	services.StartFixtureScraper()
 
 	router := server.NewRouter()
 	port := os.Getenv("PORT")

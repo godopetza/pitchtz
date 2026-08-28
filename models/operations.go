@@ -113,3 +113,19 @@ type Notification struct {
 	Attempts    int            `gorm:"not null;default:0" json:"attempts"`
 	SentAt      *time.Time     `json:"sentAt,omitempty"`
 }
+
+// Fixture is a scraped match time shown on the client site — Tanzania's Ligi
+// Kuu Bara plus the top five European leagues. No paid API: a scheduled
+// scrape fills this table, and a failed scrape emails the superadmin.
+type Fixture struct {
+	Base
+	ExternalID string    `gorm:"not null;uniqueIndex" json:"externalId"`
+	League     string    `gorm:"not null;index" json:"league"`
+	Country    string    `gorm:"not null;index" json:"country"`
+	Home       string    `gorm:"not null" json:"home"`
+	Away       string    `gorm:"not null" json:"away"`
+	KickoffAt  time.Time `gorm:"not null;index" json:"kickoffAt"`
+	Status     string    `gorm:"not null;default:NS" json:"status"`
+	HomeScore  string    `json:"homeScore"`
+	AwayScore  string    `json:"awayScore"`
+}
