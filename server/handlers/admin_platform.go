@@ -293,14 +293,18 @@ func AdminSetPitchStatus(c *gin.Context) {
 func AdminListPlatformUsers(c *gin.Context) {
 	type row struct {
 		models.User
-		BookingsCount int64
-		TeamsCount    int64
+		BookingsCount      int64
+		TeamsCount         int64
+		HasOwnerCredential bool
+		IsStaff            bool
 	}
 	query := initializers.DB.WithContext(c.Request.Context()).
 		Table("users").
 		Select(`users.*,
 			COALESCE((SELECT COUNT(*) FROM bookings WHERE bookings.user_id = users.id), 0) AS bookings_count,
-			COALESCE((SELECT COUNT(*) FROM team_members WHERE team_members.user_id = users.id AND team_members.status = 'active'), 0) AS teams_count`)
+			COALESCE((SELECT COUNT(*) FROM team_members WHERE team_members.user_id = users.id AND team_members.status = 'active'), 0) AS teams_count,
+			EXISTS(SELECT 1 FROM owner_credentials WHERE owner_credentials.user_id = users.id) AS has_owner_credential,
+			EXISTS(SELECT 1 FROM admin_staffs WHERE admin_staffs.user_id = users.id) AS is_staff`)
 	if search := strings.TrimSpace(c.Query("q")); search != "" {
 		like := "%" + strings.ToLower(search) + "%"
 		query = query.Where("LOWER(users.name) LIKE ? OR LOWER(users.email) LIKE ?", like, like)
@@ -317,9 +321,33 @@ func AdminListPlatformUsers(c *gin.Context) {
 		if r.Email != nil {
 			email = *r.Email
 		}
+		// One identity can hold several hats and doors: collect every distinct
+		// role and sign-in method rather than just the first.
+		roles := []string{}
+		appendUnique := func(list []string, value string) []string {
+			if value == "" {
+				return list
+			}
+			for _, existing := range list {
+				if existing == value {
+					return list
+				}
+			}
+			return append(list, value)
+		}
+		roles = appendUnique(roles, r.Role)
+		if r.HasOwnerCredential {
+			roles = appendUnique(roles, "owner")
+		}
+		if r.IsStaff {
+			roles = appendUnique(roles, "staff")
+		}
+		providers := []string{}
+		providers = appendUnique(providers, r.AuthProvider)
+		providers = appendUnique(providers, r.LastLoginProvider)
 		items = append(items, gin.H{
-			"id": r.ID, "name": r.Name, "email": email, "role": r.Role,
-			"provider": r.AuthProvider, "avatar_url": r.AvatarURL,
+			"id": r.ID, "name": r.Name, "email": email, "role": r.Role, "roles": roles,
+			"provider": r.AuthProvider, "providers": providers, "avatar_url": r.AvatarURL,
 			"created_at": r.CreatedAt, "bookings": r.BookingsCount, "teams": r.TeamsCount,
 		})
 	}

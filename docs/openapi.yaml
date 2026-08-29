@@ -1,13 +1,30 @@
-openapi: 3.1.0
+openapi: 3.0.3
 info:
   title: PitchTZ Client API
-  version: 0.2.0
-  summary: Public and authenticated player API for the PitchTZ mobile and client-web apps.
+  version: "2.0.0"
   description: |
-    This contract intentionally excludes admin, owner, internal provider-webhook, and payout APIs.
-    Operations marked `x-pitchtz-status: live` are deployed today. Operations marked `planned`
-    are the agreed mobile contract and will be implemented without changing their request shape.
-    All money values are integer Tanzanian shillings and all timestamps are RFC 3339 UTC values.
+    The mobile handover contract for the PitchTZ player experience. Every
+    operation in this document is **deployed and live today** — this spec is
+    generated from the running router, not a wishlist.
+
+    **See it all working first:** the client web at
+    https://pitchtz.flutterai.dev is the reference implementation of this API.
+    Booking with hold countdown, split QR payments, teams & open challenges,
+    Google-Maps discovery, watch areas with the live match board, the shop,
+    reviews — every flow below can be exercised there end-to-end before you
+    write a line of mobile code.
+
+    Conventions:
+    - Every response is wrapped: `{ "success": bool, "data": …, "message": str }`
+      on success and `{ "success": false, "error": { "code", "message" } }` on failure.
+    - Money is integer Tanzanian shillings (no decimals).
+    - Timestamps are RFC 3339 UTC; display times in Africa/Dar_es_Salaam (+03:00).
+    - Auth is a Bearer JWT from email-code verify or the social redirect flow.
+      Client tokens live 30 days; exchange via `/auth/refresh` past half-life.
+    - Payment method logos/operators come from the companion Malipo gateway:
+      `GET https://api.malipo.flutterai.dev/v1/providers/active` (no auth).
+
+    Excluded on purpose: venue-owner, superadmin and provider-webhook APIs.
 servers:
   - url: https://pitchtz-production.up.railway.app/v1
     description: Production
@@ -15,810 +32,694 @@ servers:
     description: Local development
 tags:
   - name: Discovery
-    description: Public cities, venues, availability, reviews, extras, and favorites.
-  - name: Authentication
-    description: Player OTP/OAuth sessions. Admin authentication is intentionally not included.
-  - name: Profile
-    description: Authenticated player profile, bookings, and devices.
+    description: Cities, venues, pitches, availability, extras, reviews.
+  - name: Auth
+    description: Email-code and social sign-in, profile, sliding refresh.
   - name: Bookings
-    description: Slot reservation, payment choice, cancellation, and disputes.
-  - name: Scan to pay
-    description: Expiring capability-link payment for guests without the app.
+    description: Holds, payments (full / split / QR share links).
   - name: Teams
-    description: Public team browse and authenticated team actions.
-  - name: Competitions
-    description: Public leagues, standings, fixtures, and tournaments.
-  - name: Notifications
-    description: In-app notification inbox and push-device registration.
-  - name: Growth
-    description: Public city launch waitlist.
+    description: Create, explore, join, and challenge — football finds its people.
+  - name: Fixtures
+    description: Scraped match board — Ligi Kuu Bara, Europe's top five, basketball.
+  - name: Shop
+    description: PitchTZ merchandise with mobile-money checkout.
+  - name: Misc
+
+security: []
+
 paths:
   /cities:
     get:
       tags: [Discovery]
-      summary: List PitchTZ cities
-      operationId: listCities
-      x-pitchtz-status: live
+      summary: List cities (live + waitlist)
       responses:
         "200":
-          description: Cities and launch state.
+          description: Cities ordered as stored; filter by `status`.
           content:
             application/json:
               schema:
-                $ref: "#/components/schemas/CityListResponse"
-        default:
-          $ref: "#/components/responses/Error"
+                allOf:
+                  - $ref: "#/components/schemas/Envelope"
+                  - properties:
+                      data:
+                        type: array
+                        items: { $ref: "#/components/schemas/City" }
+
   /venues:
     get:
       tags: [Discovery]
-      summary: Search active venues
-      operationId: listVenues
-      x-pitchtz-status: live
-      parameters:
-        - $ref: "#/components/parameters/CityID"
-        - name: format
-          in: query
-          schema: { type: string, enum: ["5", "7", "11", futsal] }
-        - name: near
-          in: query
-          description: Latitude and longitude separated by a comma.
-          example: "-6.7924,39.2083"
-          schema: { type: string }
-        - name: radius
-          in: query
-          description: Search radius in kilometres; requires `near` and defaults to 10.
-          schema: { type: number, minimum: 0.1, maximum: 100 }
+      summary: List active venues
+      description: Includes pitches (with photo galleries), venue photos, extras and coordinates.
       responses:
         "200":
-          description: Sanitized active venues, limited to 100 results.
+          description: Active venues.
           content:
             application/json:
               schema:
-                $ref: "#/components/schemas/VenueListResponse"
-        default:
-          $ref: "#/components/responses/Error"
+                allOf:
+                  - $ref: "#/components/schemas/Envelope"
+                  - properties:
+                      data:
+                        type: array
+                        items: { $ref: "#/components/schemas/Venue" }
+
   /venues/{venueId}:
     get:
       tags: [Discovery]
-      summary: Get an active venue
-      operationId: getVenue
-      x-pitchtz-status: live
-      parameters:
-        - $ref: "#/components/parameters/VenueID"
+      summary: Venue detail
+      parameters: [{ $ref: "#/components/parameters/venueId" }]
       responses:
         "200":
-          description: Public venue details with pitches, photos, and currently available extras.
+          description: Full venue with pitches, photos, extras, opening hours, status.
           content:
             application/json:
               schema:
-                $ref: "#/components/schemas/VenueResponse"
-        "404":
-          $ref: "#/components/responses/NotFound"
-        default:
-          $ref: "#/components/responses/Error"
+                allOf:
+                  - $ref: "#/components/schemas/Envelope"
+                  - properties:
+                      data: { $ref: "#/components/schemas/Venue" }
+        "404": { $ref: "#/components/responses/NotFound" }
+
   /venues/{venueId}/availability:
     get:
       tags: [Discovery]
-      summary: Get unavailable windows for a venue
-      operationId: getVenueAvailability
-      x-pitchtz-status: live
+      summary: Unavailable windows per pitch
+      description: |
+        Returns blocked windows (bookings, holds, slot blocks) per pitch for
+        the requested range. Build the slot grid client-side from the venue's
+        `open_hours` (empty object = default 08:00–23:00), marking any slot
+        that overlaps an unavailable window. `kind: processing` means someone
+        is paying for that slot right now — show it orange, not bookable.
       parameters:
-        - $ref: "#/components/parameters/VenueID"
-        - name: date
-          in: query
-          description: Tanzania calendar day. Omit when using `from` and `to`.
-          schema: { type: string, format: date }
+        - { $ref: "#/components/parameters/venueId" }
         - name: from
           in: query
           schema: { type: string, format: date-time }
         - name: to
           in: query
-          description: Maximum window is 31 days.
           schema: { type: string, format: date-time }
+        - name: date
+          in: query
+          description: Shortcut — a single YYYY-MM-DD day.
+          schema: { type: string, format: date }
       responses:
         "200":
-          description: Per-pitch unavailable windows. A missing window is available.
+          description: Availability by pitch.
           content:
             application/json:
               schema:
-                $ref: "#/components/schemas/AvailabilityResponse"
-        default:
-          $ref: "#/components/responses/Error"
+                allOf:
+                  - $ref: "#/components/schemas/Envelope"
+                  - properties:
+                      data: { $ref: "#/components/schemas/Availability" }
+
   /venues/{venueId}/reviews:
     get:
       tags: [Discovery]
-      summary: List public venue reviews
-      operationId: listVenueReviews
-      x-pitchtz-status: live
-      parameters:
-        - $ref: "#/components/parameters/VenueID"
+      summary: Venue reviews
+      parameters: [{ $ref: "#/components/parameters/venueId" }]
       responses:
         "200":
-          description: Reviews without reviewer PII.
+          description: Reviews with owner replies.
           content:
             application/json:
               schema:
-                $ref: "#/components/schemas/ReviewListResponse"
-        default:
-          $ref: "#/components/responses/Error"
+                allOf:
+                  - $ref: "#/components/schemas/Envelope"
+                  - properties:
+                      data:
+                        type: array
+                        items: { $ref: "#/components/schemas/Review" }
     post:
       tags: [Discovery]
-      summary: Review a completed booking
-      operationId: createVenueReview
-      x-pitchtz-status: planned
-      security: [{ playerBearer: [] }]
-      parameters:
-        - $ref: "#/components/parameters/VenueID"
+      summary: Leave a review (requires a completed booking)
+      security: [{ bearerAuth: [] }]
+      parameters: [{ $ref: "#/components/parameters/venueId" }]
       requestBody:
         required: true
         content:
           application/json:
             schema:
-              $ref: "#/components/schemas/CreateReviewRequest"
+              type: object
+              required: [stars]
+              properties:
+                stars: { type: integer, minimum: 1, maximum: 5 }
+                text: { type: string, maxLength: 1000 }
       responses:
-        "201":
-          description: Review created.
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/ReviewResponse"
-        default:
-          $ref: "#/components/responses/Error"
+        "201": { description: Review created. }
+        "403": { description: No completed booking at this venue. }
+
   /venues/{venueId}/extras:
     get:
       tags: [Discovery]
-      summary: List available venue extras
-      operationId: listVenueExtras
-      x-pitchtz-status: live
-      parameters:
-        - $ref: "#/components/parameters/VenueID"
+      summary: Facilities & rentals for a venue
+      description: price_tzs 0 means the facility is free; only switched-on items are returned.
+      parameters: [{ $ref: "#/components/parameters/venueId" }]
       responses:
         "200":
-          description: Available equipment, refreshments, and other add-ons.
+          description: Available extras.
           content:
             application/json:
               schema:
-                $ref: "#/components/schemas/ExtraListResponse"
-        default:
-          $ref: "#/components/responses/Error"
-  /auth/otp/send:
+                allOf:
+                  - $ref: "#/components/schemas/Envelope"
+                  - properties:
+                      data:
+                        type: array
+                        items: { $ref: "#/components/schemas/Extra" }
+
+  /auth/email/start:
     post:
-      tags: [Authentication]
-      summary: Send a player login OTP
-      operationId: sendPlayerOTP
-      x-pitchtz-status: planned
+      tags: [Auth]
+      summary: Send a 6-digit sign-in code
+      description: Creates the account on first use — one identity per email across all PitchTZ verticals.
       requestBody:
         required: true
         content:
           application/json:
             schema:
               type: object
-              required: [phone]
+              required: [email]
               properties:
-                phone: { type: string, example: "+255712345678" }
+                email: { type: string, format: email }
       responses:
-        "202":
-          description: OTP accepted for delivery. The response is deliberately non-enumerating.
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/AcceptedResponse"
-        default:
-          $ref: "#/components/responses/Error"
-  /auth/otp/verify:
+        "200": { description: Code emailed (valid 10 minutes, single use). }
+        "429": { description: Too many codes requested. }
+
+  /auth/email/verify:
     post:
-      tags: [Authentication]
-      summary: Verify an OTP and issue player JWTs
-      operationId: verifyPlayerOTP
-      x-pitchtz-status: planned
+      tags: [Auth]
+      summary: Exchange the code for a 30-day bearer token
       requestBody:
         required: true
         content:
           application/json:
             schema:
               type: object
-              required: [phone, code]
+              required: [email, code]
               properties:
-                phone: { type: string, example: "+255712345678" }
-                code: { type: string, pattern: "^[0-9]{6}$", example: "123456" }
+                email: { type: string, format: email }
+                code: { type: string, minLength: 6, maxLength: 6 }
       responses:
         "200":
-          description: Player session tokens.
+          description: Signed in.
           content:
             application/json:
               schema:
-                $ref: "#/components/schemas/AuthResponse"
-        default:
-          $ref: "#/components/responses/Error"
-  /auth/oauth/{provider}:
-    post:
-      tags: [Authentication]
-      summary: Exchange a Google or Apple identity token
-      operationId: exchangePlayerOAuthToken
-      x-pitchtz-status: planned
-      parameters:
-        - name: provider
-          in: path
-          required: true
-          schema: { type: string, enum: [google, apple] }
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              type: object
-              required: [identity_token]
-              properties:
-                identity_token: { type: string, writeOnly: true }
-                nonce: { type: string }
+                allOf:
+                  - $ref: "#/components/schemas/Envelope"
+                  - properties:
+                      data: { $ref: "#/components/schemas/TokenGrant" }
+        "400": { description: Invalid or expired code. }
+        "429": { description: Locked after 5 failed attempts (15 minutes). }
+
+  /auth/google/start:
+    get:
+      tags: [Auth]
+      summary: Begin Google sign-in (browser redirect flow)
+      description: |
+        Open in a browser/custom tab. After consent the API redirects to the
+        client site with `#oauth_token=<jwt>`; a mobile app should intercept
+        that redirect (ASWebAuthenticationSession / Custom Tabs) and store the
+        token. Apple is identical at `/auth/apple/start`.
+      responses:
+        "302": { description: Redirect to Google consent. }
+
+  /auth/me:
+    get:
+      tags: [Auth]
+      summary: Current profile
+      security: [{ bearerAuth: [] }]
       responses:
         "200":
-          description: Player session tokens.
+          description: The signed-in player.
           content:
             application/json:
               schema:
-                $ref: "#/components/schemas/AuthResponse"
-        default:
-          $ref: "#/components/responses/Error"
+                allOf:
+                  - $ref: "#/components/schemas/Envelope"
+                  - properties:
+                      data: { $ref: "#/components/schemas/Profile" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+
   /auth/refresh:
     post:
-      tags: [Authentication]
-      summary: Rotate a player refresh token
-      operationId: refreshPlayerSession
-      x-pitchtz-status: planned
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              type: object
-              required: [refresh_token]
-              properties:
-                refresh_token: { type: string, writeOnly: true }
+      tags: [Auth]
+      summary: Sliding refresh — trade a valid token for a fresh 30-day one
+      description: Call when the stored token is past half its life. An expired token cannot refresh; fall back to sign-in.
+      security: [{ bearerAuth: [] }]
       responses:
         "200":
-          description: Rotated player session tokens.
+          description: Fresh token.
           content:
             application/json:
               schema:
-                $ref: "#/components/schemas/AuthResponse"
-        default:
-          $ref: "#/components/responses/Error"
-  /auth/logout:
-    post:
-      tags: [Authentication]
-      summary: Revoke the current player session
-      operationId: logoutPlayer
-      x-pitchtz-status: planned
-      security: [{ playerBearer: [] }]
-      responses:
-        "204": { description: Session revoked. }
-        default:
-          $ref: "#/components/responses/Error"
-  /me:
-    get:
-      tags: [Profile]
-      summary: Get the signed-in player
-      operationId: getMe
-      x-pitchtz-status: planned
-      security: [{ playerBearer: [] }]
-      responses:
-        "200":
-          description: Player profile.
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/PlayerResponse"
-        default:
-          $ref: "#/components/responses/Error"
-    patch:
-      tags: [Profile]
-      summary: Update the signed-in player
-      operationId: updateMe
-      x-pitchtz-status: planned
-      security: [{ playerBearer: [] }]
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              type: object
-              properties:
-                name: { type: string, minLength: 2, maxLength: 100 }
-                language: { type: string, enum: [en, sw] }
-                city_id: { type: string, format: uuid }
-                avatar_url: { type: string, format: uri }
-      responses:
-        "200":
-          description: Updated player profile.
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/PlayerResponse"
-        default:
-          $ref: "#/components/responses/Error"
-  /me/bookings:
-    get:
-      tags: [Profile]
-      summary: List the player's bookings
-      operationId: listMyBookings
-      x-pitchtz-status: planned
-      security: [{ playerBearer: [] }]
-      parameters:
-        - name: status
-          in: query
-          schema: { type: string, enum: [pending, confirmed, part_paid, completed, cancelled, disputed] }
-        - $ref: "#/components/parameters/Cursor"
-      responses:
-        "200":
-          description: Cursor-paginated bookings.
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/BookingListResponse"
-        default:
-          $ref: "#/components/responses/Error"
-  /me/favorites:
-    get:
-      tags: [Discovery]
-      summary: List the player's favorite venues
-      operationId: listMyFavorites
-      x-pitchtz-status: planned
-      security: [{ playerBearer: [] }]
-      responses:
-        "200":
-          description: Favorite active venues.
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/VenueListResponse"
-        default:
-          $ref: "#/components/responses/Error"
-  /me/favorites/{venueId}:
-    put:
-      tags: [Discovery]
-      summary: Save a venue as a favorite
-      operationId: addFavorite
-      x-pitchtz-status: planned
-      security: [{ playerBearer: [] }]
-      parameters:
-        - $ref: "#/components/parameters/VenueID"
-      responses:
-        "204": { description: Favorite saved idempotently. }
-        default:
-          $ref: "#/components/responses/Error"
-    delete:
-      tags: [Discovery]
-      summary: Remove a favorite venue
-      operationId: removeFavorite
-      x-pitchtz-status: planned
-      security: [{ playerBearer: [] }]
-      parameters:
-        - $ref: "#/components/parameters/VenueID"
-      responses:
-        "204": { description: Favorite removed idempotently. }
-        default:
-          $ref: "#/components/responses/Error"
-  /me/devices:
-    post:
-      tags: [Notifications]
-      summary: Register or refresh a push device
-      operationId: registerDevice
-      x-pitchtz-status: planned
-      security: [{ playerBearer: [] }]
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              type: object
-              required: [platform, token]
-              properties:
-                platform: { type: string, enum: [ios, android, web] }
-                token: { type: string, writeOnly: true }
-      responses:
-        "204": { description: Device registered idempotently. }
-        default:
-          $ref: "#/components/responses/Error"
+                allOf:
+                  - $ref: "#/components/schemas/Envelope"
+                  - properties:
+                      data: { $ref: "#/components/schemas/TokenGrant" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+
   /bookings:
     post:
       tags: [Bookings]
-      summary: Lock slots and create a pending booking
-      operationId: createBooking
-      x-pitchtz-status: planned
-      security: [{ playerBearer: [] }]
-      parameters:
-        - $ref: "#/components/parameters/IdempotencyKey"
+      summary: Hold a slot on a specific pitch
+      description: |
+        Bookings are per **pitch**, never per venue. A successful call places a
+        10-minute hold (`hold_expires_at`); pay within it or the slot releases.
+        Money safety is server-side: a charge that completes after the hold
+        expired still wins the slot back.
+      security: [{ bearerAuth: [] }]
       requestBody:
         required: true
         content:
           application/json:
             schema:
-              $ref: "#/components/schemas/CreateBookingRequest"
+              type: object
+              required: [pitch_id, starts_at, ends_at]
+              properties:
+                pitch_id: { type: string, format: uuid }
+                starts_at: { type: string, format: date-time }
+                ends_at: { type: string, format: date-time }
       responses:
         "201":
-          description: Pending booking created with a 10-minute payment lock.
+          description: Slot held.
           content:
             application/json:
               schema:
-                $ref: "#/components/schemas/BookingResponse"
+                allOf:
+                  - $ref: "#/components/schemas/Envelope"
+                  - properties:
+                      data: { $ref: "#/components/schemas/Booking" }
         "409":
-          description: One or more requested slots are no longer available.
+          description: Slot taken, pitch not active, or outside the venue's opening hours (`OUTSIDE_OPEN_HOURS`, `PITCH_UNAVAILABLE`, `BOOKING_CONFLICT`).
+    get:
+      tags: [Bookings]
+      summary: My bookings
+      security: [{ bearerAuth: [] }]
+      responses:
+        "200":
+          description: The player's bookings, newest first.
           content:
             application/json:
               schema:
-                $ref: "#/components/schemas/ErrorResponse"
-        default:
-          $ref: "#/components/responses/Error"
+                allOf:
+                  - $ref: "#/components/schemas/Envelope"
+                  - properties:
+                      data:
+                        type: array
+                        items: { $ref: "#/components/schemas/Booking" }
+
   /bookings/{bookingId}:
     get:
       tags: [Bookings]
-      summary: Get the player's booking
-      operationId: getBooking
-      x-pitchtz-status: planned
-      security: [{ playerBearer: [] }]
-      parameters:
-        - $ref: "#/components/parameters/BookingID"
+      summary: One booking with its payment shares
+      description: Poll this while a payment is pending — status flips to part_paid / confirmed as money settles.
+      security: [{ bearerAuth: [] }]
+      parameters: [{ $ref: "#/components/parameters/bookingId" }]
       responses:
         "200":
-          description: Booking, extras, payment shares, and payment state.
+          description: Booking detail.
           content:
             application/json:
               schema:
-                $ref: "#/components/schemas/BookingResponse"
-        default:
-          $ref: "#/components/responses/Error"
+                allOf:
+                  - $ref: "#/components/schemas/Envelope"
+                  - properties:
+                      data: { $ref: "#/components/schemas/Booking" }
+        "404": { $ref: "#/components/responses/NotFound" }
+
   /bookings/{bookingId}/pay:
     post:
       tags: [Bookings]
-      summary: Choose full, installment, or split payment
-      operationId: payBooking
-      x-pitchtz-status: planned
-      security: [{ playerBearer: [] }]
-      parameters:
-        - $ref: "#/components/parameters/BookingID"
-        - $ref: "#/components/parameters/IdempotencyKey"
+      summary: Charge the full amount to one mobile-money number
+      description: Triggers a USSD push via the Malipo gateway. Get valid operators from Malipo's active-providers endpoint; never hardcode them.
+      security: [{ bearerAuth: [] }]
+      parameters: [{ $ref: "#/components/parameters/bookingId" }]
       requestBody:
         required: true
-        content:
-          application/json:
-            schema:
-              $ref: "#/components/schemas/PayBookingRequest"
-      responses:
-        "202":
-          description: Payment request accepted; final state arrives asynchronously.
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/PaymentResponse"
-        default:
-          $ref: "#/components/responses/Error"
-  /bookings/{bookingId}/cancel:
-    post:
-      tags: [Bookings]
-      summary: Cancel a booking and start any eligible refund
-      operationId: cancelBooking
-      x-pitchtz-status: planned
-      security: [{ playerBearer: [] }]
-      parameters:
-        - $ref: "#/components/parameters/BookingID"
-        - $ref: "#/components/parameters/IdempotencyKey"
-      requestBody:
         content:
           application/json:
             schema:
               type: object
+              required: [phone, operator]
               properties:
-                reason: { type: string, maxLength: 500 }
+                phone: { type: string, example: "255744963858" }
+                operator: { type: string, example: "AIRTEL_TZA" }
       responses:
-        "202":
-          description: Cancellation accepted; refund status is returned on the booking.
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/BookingResponse"
-        default:
-          $ref: "#/components/responses/Error"
-  /disputes:
+        "200": { description: Charge initiated — poll the booking for settlement. }
+        "409": { description: Hold expired or already fully paid. }
+
+  /bookings/{bookingId}/split:
     post:
       tags: [Bookings]
-      summary: Open a dispute for one of the player's bookings
-      operationId: createDispute
-      x-pitchtz-status: planned
-      security: [{ playerBearer: [] }]
-      parameters:
-        - $ref: "#/components/parameters/IdempotencyKey"
+      summary: Split the bill into shareable QR pay links
+      description: Each share gets an unguessable `pay_url` — render it as a QR; friends pay without an account.
+      security: [{ bearerAuth: [] }]
+      parameters: [{ $ref: "#/components/parameters/bookingId" }]
       requestBody:
         required: true
         content:
           application/json:
             schema:
-              $ref: "#/components/schemas/CreateDisputeRequest"
-      responses:
-        "201":
-          description: Dispute opened.
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/DisputeResponse"
-        default:
-          $ref: "#/components/responses/Error"
-  /pay/qr/{session}:
-    get:
-      tags: [Scan to pay]
-      summary: Get an expiring guest payment share
-      operationId: getQRPaymentSession
-      x-pitchtz-status: planned
-      parameters:
-        - name: session
-          in: path
-          required: true
-          schema: { type: string, minLength: 24 }
+              type: object
+              required: [ways]
+              properties:
+                ways: { type: integer, minimum: 2, maximum: 12 }
       responses:
         "200":
-          description: Sanitized share and booking summary; no player PII.
+          description: Booking with its shares (kind `split`).
           content:
             application/json:
               schema:
-                $ref: "#/components/schemas/QRPaymentResponse"
-        default:
-          $ref: "#/components/responses/Error"
+                allOf:
+                  - $ref: "#/components/schemas/Envelope"
+                  - properties:
+                      data: { $ref: "#/components/schemas/Booking" }
+
+  /pay/shares/{shareId}:
+    get:
+      tags: [Bookings]
+      summary: Public share details (no auth — the id is the capability)
+      parameters: [{ $ref: "#/components/parameters/shareId" }]
+      responses:
+        "200":
+          description: What this share pays for.
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: "#/components/schemas/Envelope"
+                  - properties:
+                      data: { $ref: "#/components/schemas/PublicShare" }
+
+  /pay/shares/{shareId}/pay:
     post:
-      tags: [Scan to pay]
-      summary: Pay an expiring guest share
-      operationId: payQRPaymentSession
-      x-pitchtz-status: planned
-      parameters:
-        - name: session
-          in: path
-          required: true
-          schema: { type: string, minLength: 24 }
-        - $ref: "#/components/parameters/IdempotencyKey"
+      tags: [Bookings]
+      summary: Pay one share from any phone (no auth)
+      parameters: [{ $ref: "#/components/parameters/shareId" }]
       requestBody:
         required: true
         content:
           application/json:
             schema:
-              $ref: "#/components/schemas/PaymentMethodRequest"
+              type: object
+              required: [phone, operator]
+              properties:
+                phone: { type: string }
+                operator: { type: string }
       responses:
-        "202":
-          description: Guest payment accepted for processing.
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/PaymentResponse"
-        default:
-          $ref: "#/components/responses/Error"
+        "200": { description: Charge initiated for this share. }
+
   /teams:
     get:
       tags: [Teams]
-      summary: Browse public teams
-      operationId: listTeams
-      x-pitchtz-status: planned
+      summary: Explore teams
+      description: Public; send the bearer token to also receive your membership status per team.
+      security: [{}, { bearerAuth: [] }]
       parameters:
-        - $ref: "#/components/parameters/CityID"
-        - name: recruiting
-          in: query
-          schema: { type: boolean }
+        - { name: q, in: query, schema: { type: string }, description: Search name / tag / area. }
+        - { name: city_id, in: query, schema: { type: string, format: uuid } }
+        - { name: format, in: query, schema: { type: string, example: 5-a-side } }
+        - { name: recruiting, in: query, schema: { type: string, enum: ["true"] } }
       responses:
         "200":
-          description: Sanitized team profiles.
+          description: Team cards.
           content:
             application/json:
               schema:
-                $ref: "#/components/schemas/TeamListResponse"
-        default:
-          $ref: "#/components/responses/Error"
+                allOf:
+                  - $ref: "#/components/schemas/Envelope"
+                  - properties:
+                      data:
+                        type: array
+                        items: { $ref: "#/components/schemas/TeamCard" }
     post:
       tags: [Teams]
-      summary: Create a team as captain
-      operationId: createTeam
-      x-pitchtz-status: planned
-      security: [{ playerBearer: [] }]
+      summary: Create a team (you become captain)
+      security: [{ bearerAuth: [] }]
       requestBody:
         required: true
         content:
           application/json:
             schema:
               type: object
-              required: [name, tag, city_id, format]
+              required: [name, city_id, format]
               properties:
-                name: { type: string, minLength: 2, maxLength: 80 }
-                tag: { type: string, minLength: 2, maxLength: 12 }
+                name: { type: string, minLength: 2, maxLength: 60 }
                 city_id: { type: string, format: uuid }
-                format: { type: string, enum: ["5", "7", "11", futsal] }
-                recruiting: { type: boolean, default: false }
-                needs: { type: string, maxLength: 200 }
+                area: { type: string, maxLength: 120 }
+                format: { type: string, example: 7-a-side }
+                bio: { type: string, maxLength: 280 }
+                badge_color: { type: string, example: "#0e3b2c" }
+                recruiting: { type: boolean }
+                needs: { type: string, maxLength: 120, example: "A keeper and 2 defenders" }
       responses:
         "201":
           description: Team created.
           content:
             application/json:
               schema:
-                $ref: "#/components/schemas/TeamResponse"
-        default:
-          $ref: "#/components/responses/Error"
+                allOf:
+                  - $ref: "#/components/schemas/Envelope"
+                  - properties:
+                      data: { $ref: "#/components/schemas/TeamCard" }
+
   /teams/{teamId}:
     get:
       tags: [Teams]
-      summary: Get a public team profile
-      operationId: getTeam
-      x-pitchtz-status: planned
-      parameters:
-        - $ref: "#/components/parameters/TeamID"
+      summary: Team detail with squad
+      description: Pending join requests are included only when the viewer is the captain.
+      security: [{}, { bearerAuth: [] }]
+      parameters: [{ $ref: "#/components/parameters/teamId" }]
       responses:
         "200":
-          description: Team profile and public fixture summary.
+          description: Team + members.
           content:
             application/json:
               schema:
-                $ref: "#/components/schemas/TeamResponse"
-        default:
-          $ref: "#/components/responses/Error"
+                allOf:
+                  - $ref: "#/components/schemas/Envelope"
+                  - properties:
+                      data:
+                        type: object
+                        properties:
+                          team: { $ref: "#/components/schemas/TeamCard" }
+                          members:
+                            type: array
+                            items: { $ref: "#/components/schemas/TeamMember" }
+
+  /me/teams:
+    get:
+      tags: [Teams]
+      summary: My teams (memberships + pending requests)
+      security: [{ bearerAuth: [] }]
+      responses:
+        "200":
+          description: Team cards with `membership` / `is_captain` set.
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: "#/components/schemas/Envelope"
+                  - properties:
+                      data:
+                        type: array
+                        items: { $ref: "#/components/schemas/TeamCard" }
+
   /teams/{teamId}/join:
     post:
       tags: [Teams]
-      summary: Request to join a recruiting team
-      operationId: joinTeam
-      x-pitchtz-status: planned
-      security: [{ playerBearer: [] }]
-      parameters:
-        - $ref: "#/components/parameters/TeamID"
+      summary: Ask to join a team
+      description: The captain receives an email and decides; you'll get an email either way.
+      security: [{ bearerAuth: [] }]
+      parameters: [{ $ref: "#/components/parameters/teamId" }]
       responses:
-        "202":
-          description: Join request created idempotently.
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/AcceptedResponse"
-        default:
-          $ref: "#/components/responses/Error"
-  /teams/{teamId}/challenges:
+        "201": { description: Request sent (status `requested`). }
+        "200": { description: You already have a request or membership. }
+
+  /teams/{teamId}/decide:
     post:
       tags: [Teams]
-      summary: Challenge another team
-      operationId: challengeTeam
-      x-pitchtz-status: planned
-      security: [{ playerBearer: [] }]
-      parameters:
-        - $ref: "#/components/parameters/TeamID"
-        - $ref: "#/components/parameters/IdempotencyKey"
+      summary: Captain accepts or declines a join request
+      security: [{ bearerAuth: [] }]
+      parameters: [{ $ref: "#/components/parameters/teamId" }]
       requestBody:
         required: true
         content:
           application/json:
             schema:
               type: object
-              required: [opponent_team_id]
+              required: [user_id, accept]
               properties:
-                opponent_team_id: { type: string, format: uuid }
-                proposed_at: { type: string, format: date-time }
-                message: { type: string, maxLength: 300 }
+                user_id: { type: string, format: uuid }
+                accept: { type: boolean }
       responses:
-        "201":
-          description: Challenge created.
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/MatchResponse"
-        default:
-          $ref: "#/components/responses/Error"
-  /matches/{matchId}/accept:
+        "200": { description: Decision saved; the player is emailed. }
+        "403": { description: Only the captain can decide. }
+
+  /teams/{teamId}/challenges:
     post:
       tags: [Teams]
-      summary: Accept a team challenge
-      operationId: acceptChallenge
-      x-pitchtz-status: planned
-      security: [{ playerBearer: [] }]
+      summary: Captain posts an open challenge
+      security: [{ bearerAuth: [] }]
+      parameters: [{ $ref: "#/components/parameters/teamId" }]
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                note: { type: string, maxLength: 200 }
+                proposed_at: { type: string, format: date-time }
+      responses:
+        "201": { description: Challenge is on the public board. }
+
+  /challenges:
+    get:
+      tags: [Teams]
+      summary: Open challenges board
       parameters:
-        - name: matchId
+        - { name: city_id, in: query, schema: { type: string, format: uuid } }
+      responses:
+        "200":
+          description: Open challenges, newest first.
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: "#/components/schemas/Envelope"
+                  - properties:
+                      data:
+                        type: array
+                        items: { $ref: "#/components/schemas/Challenge" }
+
+  /challenges/{challengeId}/accept:
+    post:
+      tags: [Teams]
+      summary: Take an open challenge (captains only)
+      description: Race-safe — first accept wins; both captains get a "game on" email to arrange the pitch.
+      security: [{ bearerAuth: [] }]
+      parameters:
+        - name: challengeId
           in: path
           required: true
           schema: { type: string, format: uuid }
-        - $ref: "#/components/parameters/IdempotencyKey"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [team_id]
+              properties:
+                team_id: { type: string, format: uuid, description: Your team (you must be its captain). }
+      responses:
+        "200": { description: "Match created: `{ match_id }`." }
+        "409": { description: Challenge already taken. }
+
+  /fixtures:
+    get:
+      tags: [Fixtures]
+      summary: Match board (next 3 days, scraped — no API key)
+      description: |
+        Tanzania's Ligi Kuu Bara plus Europe's top five leagues and basketball
+        (NBA / WNBA / FIBA). Includes live scores when matches are in play.
+        Data courtesy of LiveScore — keep the credit visible in your UI.
       responses:
         "200":
-          description: Challenge accepted; a booking/payment step may be required next.
+          description: Fixtures ordered by kickoff.
           content:
             application/json:
               schema:
-                $ref: "#/components/schemas/MatchResponse"
-        default:
-          $ref: "#/components/responses/Error"
-  /leagues:
+                allOf:
+                  - $ref: "#/components/schemas/Envelope"
+                  - properties:
+                      data:
+                        type: array
+                        items: { $ref: "#/components/schemas/Fixture" }
+
+  /shop/products:
     get:
-      tags: [Competitions]
-      summary: Browse public leagues
-      operationId: listLeagues
-      x-pitchtz-status: planned
-      parameters:
-        - $ref: "#/components/parameters/CityID"
+      tags: [Shop]
+      summary: Storefront products
       responses:
         "200":
-          description: Public leagues.
+          description: In-stock products with R2 image URLs.
           content:
             application/json:
               schema:
-                $ref: "#/components/schemas/LeagueListResponse"
-        default:
-          $ref: "#/components/responses/Error"
-  /leagues/{leagueId}/standings:
+                allOf:
+                  - $ref: "#/components/schemas/Envelope"
+                  - properties:
+                      data:
+                        type: array
+                        items: { $ref: "#/components/schemas/Product" }
+
+  /shop/orders:
+    post:
+      tags: [Shop]
+      summary: Create an order
+      security: [{ bearerAuth: [] }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [items]
+              properties:
+                items:
+                  type: array
+                  items:
+                    type: object
+                    required: [product_id, quantity]
+                    properties:
+                      product_id: { type: string, format: uuid }
+                      quantity: { type: integer, minimum: 1 }
+      responses:
+        "201": { description: "Order created (pay via /shop/orders/{id}/pay)." }
+
+  /shop/orders/{orderId}:
     get:
-      tags: [Competitions]
-      summary: Get public league standings
-      operationId: getLeagueStandings
-      x-pitchtz-status: planned
+      tags: [Shop]
+      summary: Order status
+      security: [{ bearerAuth: [] }]
       parameters:
-        - name: leagueId
+        - name: orderId
           in: path
           required: true
           schema: { type: string, format: uuid }
       responses:
-        "200":
-          description: Ordered public standings.
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/StandingListResponse"
-        default:
-          $ref: "#/components/responses/Error"
-  /tournaments:
-    get:
-      tags: [Competitions]
-      summary: Browse public tournaments
-      operationId: listTournaments
-      x-pitchtz-status: planned
+        "200": { description: Order with payment status. }
+
+  /shop/orders/{orderId}/pay:
+    post:
+      tags: [Shop]
+      summary: Pay an order by mobile money
+      security: [{ bearerAuth: [] }]
       parameters:
-        - $ref: "#/components/parameters/CityID"
-      responses:
-        "200":
-          description: Public tournament cards and brackets.
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/TournamentListResponse"
-        default:
-          $ref: "#/components/responses/Error"
-  /notifications:
-    get:
-      tags: [Notifications]
-      summary: List the player's notifications
-      operationId: listNotifications
-      x-pitchtz-status: planned
-      security: [{ playerBearer: [] }]
-      parameters:
-        - $ref: "#/components/parameters/Cursor"
-      responses:
-        "200":
-          description: Cursor-paginated notification inbox.
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/NotificationListResponse"
-        default:
-          $ref: "#/components/responses/Error"
-  /notifications/{notificationId}/read:
-    patch:
-      tags: [Notifications]
-      summary: Mark an in-app notification as read
-      operationId: markNotificationRead
-      x-pitchtz-status: planned
-      security: [{ playerBearer: [] }]
-      parameters:
-        - name: notificationId
+        - name: orderId
           in: path
           required: true
           schema: { type: string, format: uuid }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [phone, operator]
+              properties:
+                phone: { type: string }
+                operator: { type: string }
       responses:
-        "204": { description: Notification marked read idempotently. }
-        default:
-          $ref: "#/components/responses/Error"
+        "200": { description: Charge initiated. }
+
   /waitlist:
     post:
-      tags: [Growth]
+      tags: [Misc]
       summary: Join a city's launch waitlist
-      operationId: joinCityWaitlist
-      x-pitchtz-status: live
       requestBody:
         required: true
         content:
@@ -829,512 +730,304 @@ paths:
               properties:
                 city_id: { type: string, format: uuid }
                 email: { type: string, format: email }
-                phone: { type: string, example: "+255712345678" }
-              anyOf:
-                - required: [email]
-                - required: [phone]
+                phone: { type: string }
       responses:
-        "202":
-          description: Waitlist entry accepted idempotently.
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/WaitlistResponse"
-        default:
-          $ref: "#/components/responses/Error"
+        "201": { description: On the list — notified at launch. }
+
+  /venues/enroll:
+    post:
+      tags: [Misc]
+      summary: Apply to list a venue (owner acquisition)
+      description: Powers the "List your pitch" flow; the application lands in superadmin review and the applicant is emailed on approval.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [venue_name, city_id, owner_name, owner_email, owner_phone]
+              properties:
+                venue_name: { type: string }
+                area: { type: string }
+                city_id: { type: string, format: uuid }
+                owner_name: { type: string }
+                owner_email: { type: string, format: email }
+                owner_phone: { type: string, example: "+255744963858" }
+                whatsapp: { type: boolean }
+                latitude: { type: number }
+                longitude: { type: number }
+                photo_keys:
+                  type: array
+                  items: { type: string }
+      responses:
+        "202": { description: Application received. }
+
 components:
   securitySchemes:
-    playerBearer:
+    bearerAuth:
       type: http
       scheme: bearer
       bearerFormat: JWT
-      description: Player access JWT issued by OTP or OAuth. Admin JWTs are a different audience and are rejected.
+
   parameters:
-    CityID:
-      name: city_id
-      in: query
-      schema: { type: string, format: uuid }
-    VenueID:
+    venueId:
       name: venueId
       in: path
       required: true
       schema: { type: string, format: uuid }
-    BookingID:
+    bookingId:
       name: bookingId
       in: path
       required: true
       schema: { type: string, format: uuid }
-    TeamID:
+    teamId:
       name: teamId
       in: path
       required: true
       schema: { type: string, format: uuid }
-    Cursor:
-      name: cursor
-      in: query
-      schema: { type: string }
-    IdempotencyKey:
-      name: Idempotency-Key
-      in: header
+    shareId:
+      name: shareId
+      in: path
       required: true
-      description: A new UUID per user action. Reuse the same value when retrying the same action.
       schema: { type: string, format: uuid }
+
   responses:
-    Error:
-      description: Error response.
-      content:
-        application/json:
-          schema:
-            $ref: "#/components/schemas/ErrorResponse"
     NotFound:
-      description: The resource does not exist or is not publicly visible.
-      content:
-        application/json:
-          schema:
-            $ref: "#/components/schemas/ErrorResponse"
+      description: Resource not found.
+    Unauthorized:
+      description: Missing, invalid, or expired bearer token.
+
   schemas:
-    SuccessEnvelope:
+    Envelope:
       type: object
-      required: [success, data]
       properties:
-        success: { type: boolean, const: true }
-        data: {}
+        success: { type: boolean }
         message: { type: string }
-    ErrorResponse:
-      type: object
-      required: [success, error]
-      properties:
-        success: { type: boolean, const: false }
-        error:
-          type: object
-          required: [code, message]
-          properties:
-            code: { type: string, example: INVALID_INPUT }
-            message: { type: string }
+
     City:
       type: object
-      required: [id, name, status, latitude, longitude]
       properties:
         id: { type: string, format: uuid }
-        name: { type: string, example: Dar es Salaam }
+        name: { type: string, example: Zanzibar }
         status: { type: string, enum: [live, waitlist] }
-        launch_eta: { type: string, format: date-time }
-        latitude: { type: number, format: double }
-        longitude: { type: number, format: double }
-    Pitch:
-      type: object
-      required: [id, name, format, surface, base_price_tzs, open_hours]
-      properties:
-        id: { type: string, format: uuid }
-        name: { type: string }
-        format: { type: string, enum: ["5", "7", "11", futsal] }
-        surface: { type: string, example: artificial_turf }
-        base_price_tzs: { type: integer, format: int64, minimum: 0, example: 60000 }
-        open_hours: { type: object, additionalProperties: true }
-    VenuePhoto:
-      type: object
-      required: [sort, alt]
-      properties:
-        url: { type: string, format: uri }
-        sort: { type: integer }
-        alt: { type: string }
-    Extra:
-      type: object
-      required: [id, kind, name, price_tzs, unit, available]
-      properties:
-        id: { type: string, format: uuid }
-        kind: { type: string, example: equipment }
-        name: { type: string, example: Football boots }
-        price_tzs: { type: integer, format: int64, minimum: 0 }
-        unit: { type: string, example: pair }
-        available: { type: boolean }
+        latitude: { type: number }
+        longitude: { type: number }
+
     Venue:
       type: object
-      required: [id, name, area, city, latitude, longitude, verified, rating, amenities, rules, cancel_window_hours, auto_confirm, price_from_tzs, pitches, photos, extras]
       properties:
         id: { type: string, format: uuid }
         name: { type: string }
         area: { type: string }
         city: { $ref: "#/components/schemas/City" }
-        latitude: { type: number, format: double }
-        longitude: { type: number, format: double }
+        latitude: { type: number }
+        longitude: { type: number }
+        status: { type: string, enum: [active, suspended, pending, review] }
         verified: { type: boolean }
-        rating: { type: number, minimum: 0, maximum: 5 }
+        rating: { type: number }
         amenities: { type: array, items: { type: string } }
-        rules: { type: array, items: { type: string } }
-        cancel_window_hours: { type: integer, minimum: 0 }
-        auto_confirm: { type: boolean }
-        price_from_tzs: { type: integer, format: int64, minimum: 0 }
-        pitches: { type: array, items: { $ref: "#/components/schemas/Pitch" } }
-        photos: { type: array, items: { $ref: "#/components/schemas/VenuePhoto" } }
-        extras: { type: array, items: { $ref: "#/components/schemas/Extra" } }
-    Review:
-      type: object
-      required: [id, stars, text, tags, created_at]
-      properties:
-        id: { type: string, format: uuid }
-        stars: { type: integer, minimum: 1, maximum: 5 }
-        text: { type: string }
-        tags: { type: array, items: { type: string } }
-        owner_reply: { type: string }
-        replied_at: { type: string, format: date-time }
-        created_at: { type: string, format: date-time }
-    Player:
-      type: object
-      required: [id, name, language, role]
-      properties:
-        id: { type: string, format: uuid }
-        name: { type: string }
-        phone: { type: string }
-        email: { type: string, format: email }
-        avatar_url: { type: string, format: uri }
-        language: { type: string, enum: [en, sw] }
-        city_id: { type: string, format: uuid }
-        role: { type: string, enum: [player, owner] }
-    Booking:
-      type: object
-      required: [id, code, pitch_id, starts_at, ends_at, status, pitch_fee_tzs, service_fee_tzs, total_tzs, payment_shares]
-      properties:
-        id: { type: string, format: uuid }
-        code: { type: string, example: PITCH-7284 }
-        pitch_id: { type: string, format: uuid }
-        team_id: { type: string, format: uuid }
-        starts_at: { type: string, format: date-time }
-        ends_at: { type: string, format: date-time }
-        status: { type: string, enum: [pending, confirmed, part_paid, completed, cancelled, disputed] }
-        repeat_rule: { type: string, enum: [once, weekly4, monthly, 3months] }
-        pitch_fee_tzs: { type: integer, format: int64 }
-        service_fee_tzs: { type: integer, format: int64 }
-        total_tzs: { type: integer, format: int64 }
-        lock_expires_at: { type: string, format: date-time }
-        payment_shares: { type: array, items: { $ref: "#/components/schemas/PaymentShare" } }
-    PaymentShare:
-      type: object
-      required: [id, amount_tzs, kind, status]
-      properties:
-        id: { type: string, format: uuid }
-        amount_tzs: { type: integer, format: int64 }
-        kind: { type: string, enum: [full, share, installment_1, installment_2, organizer_cover, tip_guards, tip_venue] }
-        status: { type: string, enum: [unpaid, pending, paid, refunded, failed] }
-        due_at: { type: string, format: date-time }
-        qr_url: { type: string, format: uri }
-        paid_at: { type: string, format: date-time }
-    Team:
-      type: object
-      required: [id, name, tag, city_id, format, recruiting, needs]
-      properties:
-        id: { type: string, format: uuid }
-        name: { type: string }
-        tag: { type: string }
-        city_id: { type: string, format: uuid }
-        format: { type: string, enum: ["5", "7", "11", futsal] }
-        recruiting: { type: boolean }
-        needs: { type: string }
-        league_id: { type: string, format: uuid }
-    Match:
-      type: object
-      required: [id, home_team_id, away_team_id, status]
-      properties:
-        id: { type: string, format: uuid }
-        home_team_id: { type: string, format: uuid }
-        away_team_id: { type: string, format: uuid }
-        booking_id: { type: string, format: uuid }
-        status: { type: string, enum: [challenge_sent, accepted, played, cancelled] }
-        home_score: { type: integer, minimum: 0 }
-        away_score: { type: integer, minimum: 0 }
-        played_at: { type: string, format: date-time }
-    League:
-      type: object
-      required: [id, name, city_id, season]
-      properties:
-        id: { type: string, format: uuid }
-        name: { type: string }
-        city_id: { type: string, format: uuid }
-        season: { type: string }
-    Standing:
-      type: object
-      required: [team_id, played, won, drawn, lost, points]
-      properties:
-        team_id: { type: string, format: uuid }
-        team_name: { type: string }
-        played: { type: integer }
-        won: { type: integer }
-        drawn: { type: integer }
-        lost: { type: integer }
-        points: { type: integer }
-    Tournament:
-      type: object
-      required: [id, name, kind, entry_fee_tzs, pot_tzs, bracket]
-      properties:
-        id: { type: string, format: uuid }
-        name: { type: string }
-        kind: { type: string }
-        venue_id: { type: string, format: uuid }
-        entry_fee_tzs: { type: integer, format: int64 }
-        pot_tzs: { type: integer, format: int64 }
-        bracket: { type: object, additionalProperties: true }
-    Notification:
-      type: object
-      required: [id, title, body, kind, created_at, read]
-      properties:
-        id: { type: string, format: uuid }
-        title: { type: string }
-        body: { type: string }
-        kind: { type: string }
-        data: { type: object, additionalProperties: true }
-        read: { type: boolean }
-        created_at: { type: string, format: date-time }
-    CreateBookingRequest:
-      type: object
-      required: [pitch_id, slots]
-      properties:
-        pitch_id: { type: string, format: uuid }
-        team_id: { type: string, format: uuid }
-        slots:
+        open_hours:
+          type: object
+          description: 'Weekly hours keyed mon..sun, e.g. {"mon":{"open":"08:00","close":"23:00"}}. Missing day = closed; empty object = default 08:00–23:00.'
+          additionalProperties:
+            type: object
+            properties:
+              open: { type: string, example: "08:00" }
+              close: { type: string, example: "23:00" }
+        pitches:
           type: array
-          minItems: 1
-          maxItems: 12
+          items: { $ref: "#/components/schemas/Pitch" }
+        photos:
+          type: array
           items:
             type: object
-            required: [starts_at, ends_at]
             properties:
-              starts_at: { type: string, format: date-time }
-              ends_at: { type: string, format: date-time }
+              url: { type: string }
+              alt: { type: string, description: Photo title shown to players. }
+              sort: { type: integer }
         extras:
           type: array
+          items: { $ref: "#/components/schemas/Extra" }
+
+    Pitch:
+      type: object
+      description: The bookable unit. Only pitches with status `active` accept bookings; filter others out of player UIs.
+      properties:
+        id: { type: string, format: uuid }
+        name: { type: string, example: Mikumi }
+        format: { type: string, example: 5-a-side }
+        surface: { type: string, example: artificial_turf }
+        base_price_tzs: { type: integer, example: 70000 }
+        status: { type: string, enum: [active, closed, suspended] }
+        photo_url: { type: string, description: Lead photo. }
+        photo_urls:
+          type: array
+          items: { type: string }
+          description: Full gallery, lead first.
+
+    Extra:
+      type: object
+      properties:
+        id: { type: string, format: uuid }
+        kind: { type: string, example: bibs }
+        name: { type: string, example: Rental bibs }
+        price_tzs: { type: integer, description: 0 means free. }
+        unit: { type: string, example: per set }
+        stock: { type: integer, description: 0 means unlimited. }
+        available: { type: boolean }
+
+    Availability:
+      type: object
+      properties:
+        from: { type: string, format: date-time }
+        to: { type: string, format: date-time }
+        pitches:
+          type: array
           items:
             type: object
-            required: [extra_id, quantity]
             properties:
-              extra_id: { type: string, format: uuid }
-              quantity: { type: integer, minimum: 1, maximum: 50 }
-        repeat_rule: { type: string, enum: [once, weekly4, monthly, 3months], default: once }
-        promo_code: { type: string }
-    PayBookingRequest:
+              pitch: { $ref: "#/components/schemas/Pitch" }
+              unavailable:
+                type: array
+                items:
+                  type: object
+                  properties:
+                    starts_at: { type: string, format: date-time }
+                    ends_at: { type: string, format: date-time }
+                    kind: { type: string, enum: [booking, hold, processing, block] }
+
+    Review:
       type: object
-      required: [mode, payment_method]
       properties:
-        mode: { type: string, enum: [full, installment, split] }
-        split_count: { type: integer, minimum: 2, maximum: 30 }
-        payment_method: { $ref: "#/components/schemas/PaymentMethodRequest" }
-        payer_phones:
+        id: { type: string, format: uuid }
+        stars: { type: integer }
+        text: { type: string }
+        owner_reply: { type: string }
+        replied_at: { type: string, format: date-time, nullable: true }
+        created_at: { type: string, format: date-time }
+
+    TokenGrant:
+      type: object
+      properties:
+        access_token: { type: string }
+        token_type: { type: string, example: Bearer }
+        expires_at: { type: string, format: date-time }
+        user: { $ref: "#/components/schemas/Profile" }
+
+    Profile:
+      type: object
+      properties:
+        id: { type: string, format: uuid }
+        name: { type: string }
+        email: { type: string, format: email }
+        avatar_url: { type: string }
+        language: { type: string, example: sw }
+
+    Booking:
+      type: object
+      properties:
+        id: { type: string, format: uuid }
+        code: { type: string, example: PTZ-4K7Q2M, description: Shown at the gate. }
+        pitch_id: { type: string, format: uuid }
+        starts_at: { type: string, format: date-time }
+        ends_at: { type: string, format: date-time }
+        status: { type: string, enum: [pending, part_paid, confirmed, cancelled] }
+        pitch_fee_tzs: { type: integer }
+        service_fee_tzs: { type: integer }
+        total_tzs: { type: integer }
+        paid_tzs: { type: integer }
+        hold_expires_at:
+          type: string
+          format: date-time
+          description: Pay before this or the slot releases; drive a visible countdown.
+        shares:
           type: array
-          items: { type: string, example: "+255712345678" }
-    PaymentMethodRequest:
+          items: { $ref: "#/components/schemas/Share" }
+
+    Share:
       type: object
-      required: [provider]
       properties:
-        provider: { type: string, enum: [mpesa, airtel_money, mixx, card] }
-        phone: { type: string, example: "+255712345678" }
-        return_url: { type: string, format: uri }
-    CreateReviewRequest:
+        id: { type: string, format: uuid }
+        amount_tzs: { type: integer }
+        kind: { type: string, enum: [gateway, split] }
+        status: { type: string, enum: [unpaid, paid] }
+        paid_at: { type: string, format: date-time, nullable: true }
+        pay_url: { type: string, description: Public page for this share — render as QR. }
+
+    PublicShare:
       type: object
-      required: [booking_id, stars]
       properties:
-        booking_id: { type: string, format: uuid }
-        stars: { type: integer, minimum: 1, maximum: 5 }
-        text: { type: string, maxLength: 2000 }
-        tags: { type: array, maxItems: 10, items: { type: string } }
-    CreateDisputeRequest:
+        share_id: { type: string, format: uuid }
+        amount_tzs: { type: integer }
+        status: { type: string, enum: [unpaid, paid] }
+        booking_code: { type: string }
+        starts_at: { type: string, format: date-time }
+        venue_name: { type: string }
+        pitch_name: { type: string }
+
+    TeamCard:
       type: object
-      required: [booking_id, kind, detail]
       properties:
-        booking_id: { type: string, format: uuid }
-        kind: { type: string, enum: [refund, time_not_honoured, split_stuck, venue_no_show] }
-        detail: { type: string, minLength: 10, maxLength: 4000 }
-        evidence: { type: object, additionalProperties: true }
-    CityListResponse:
-      allOf:
-        - $ref: "#/components/schemas/SuccessEnvelope"
-        - type: object
-          properties: { data: { type: array, items: { $ref: "#/components/schemas/City" } } }
-    VenueListResponse:
-      allOf:
-        - $ref: "#/components/schemas/SuccessEnvelope"
-        - type: object
-          properties: { data: { type: array, items: { $ref: "#/components/schemas/Venue" } } }
-    VenueResponse:
-      allOf:
-        - $ref: "#/components/schemas/SuccessEnvelope"
-        - type: object
-          properties: { data: { $ref: "#/components/schemas/Venue" } }
-    ExtraListResponse:
-      allOf:
-        - $ref: "#/components/schemas/SuccessEnvelope"
-        - type: object
-          properties: { data: { type: array, items: { $ref: "#/components/schemas/Extra" } } }
-    ReviewListResponse:
-      allOf:
-        - $ref: "#/components/schemas/SuccessEnvelope"
-        - type: object
-          properties: { data: { type: array, items: { $ref: "#/components/schemas/Review" } } }
-    ReviewResponse:
-      allOf:
-        - $ref: "#/components/schemas/SuccessEnvelope"
-        - type: object
-          properties: { data: { $ref: "#/components/schemas/Review" } }
-    AvailabilityResponse:
-      allOf:
-        - $ref: "#/components/schemas/SuccessEnvelope"
-        - type: object
-          properties:
-            data:
-              type: object
-              required: [venue_id, from, to, pitches]
-              properties:
-                venue_id: { type: string, format: uuid }
-                from: { type: string, format: date-time }
-                to: { type: string, format: date-time }
-                pitches:
-                  type: array
-                  items:
-                    type: object
-                    required: [pitch, unavailable]
-                    properties:
-                      pitch: { $ref: "#/components/schemas/Pitch" }
-                      unavailable:
-                        type: array
-                        items:
-                          type: object
-                          required: [starts_at, ends_at, kind]
-                          properties:
-                            starts_at: { type: string, format: date-time }
-                            ends_at: { type: string, format: date-time }
-                            kind: { type: string, enum: [booked, blocked] }
-    AuthResponse:
-      allOf:
-        - $ref: "#/components/schemas/SuccessEnvelope"
-        - type: object
-          properties:
-            data:
-              type: object
-              required: [access_token, refresh_token, token_type, expires_at, player]
-              properties:
-                access_token: { type: string, writeOnly: true }
-                refresh_token: { type: string, writeOnly: true }
-                token_type: { type: string, const: Bearer }
-                expires_at: { type: string, format: date-time }
-                player: { $ref: "#/components/schemas/Player" }
-    PlayerResponse:
-      allOf:
-        - $ref: "#/components/schemas/SuccessEnvelope"
-        - type: object
-          properties: { data: { $ref: "#/components/schemas/Player" } }
-    BookingResponse:
-      allOf:
-        - $ref: "#/components/schemas/SuccessEnvelope"
-        - type: object
-          properties: { data: { $ref: "#/components/schemas/Booking" } }
-    BookingListResponse:
-      allOf:
-        - $ref: "#/components/schemas/SuccessEnvelope"
-        - type: object
-          properties:
-            data:
-              type: object
-              required: [items]
-              properties:
-                items: { type: array, items: { $ref: "#/components/schemas/Booking" } }
-                next_cursor: { type: string }
-    PaymentResponse:
-      allOf:
-        - $ref: "#/components/schemas/SuccessEnvelope"
-        - type: object
-          properties:
-            data:
-              type: object
-              required: [status]
-              properties:
-                status: { type: string, enum: [pending, paid, failed] }
-                provider_action_url: { type: string, format: uri }
-                share: { $ref: "#/components/schemas/PaymentShare" }
-    QRPaymentResponse:
-      allOf:
-        - $ref: "#/components/schemas/SuccessEnvelope"
-        - type: object
-          properties:
-            data:
-              type: object
-              required: [booking_code, venue_name, amount_tzs, status, expires_at]
-              properties:
-                booking_code: { type: string }
-                venue_name: { type: string }
-                starts_at: { type: string, format: date-time }
-                amount_tzs: { type: integer, format: int64 }
-                status: { type: string, enum: [unpaid, pending, paid, expired] }
-                expires_at: { type: string, format: date-time }
-    TeamResponse:
-      allOf:
-        - $ref: "#/components/schemas/SuccessEnvelope"
-        - type: object
-          properties: { data: { $ref: "#/components/schemas/Team" } }
-    TeamListResponse:
-      allOf:
-        - $ref: "#/components/schemas/SuccessEnvelope"
-        - type: object
-          properties: { data: { type: array, items: { $ref: "#/components/schemas/Team" } } }
-    MatchResponse:
-      allOf:
-        - $ref: "#/components/schemas/SuccessEnvelope"
-        - type: object
-          properties: { data: { $ref: "#/components/schemas/Match" } }
-    LeagueListResponse:
-      allOf:
-        - $ref: "#/components/schemas/SuccessEnvelope"
-        - type: object
-          properties: { data: { type: array, items: { $ref: "#/components/schemas/League" } } }
-    StandingListResponse:
-      allOf:
-        - $ref: "#/components/schemas/SuccessEnvelope"
-        - type: object
-          properties: { data: { type: array, items: { $ref: "#/components/schemas/Standing" } } }
-    TournamentListResponse:
-      allOf:
-        - $ref: "#/components/schemas/SuccessEnvelope"
-        - type: object
-          properties: { data: { type: array, items: { $ref: "#/components/schemas/Tournament" } } }
-    DisputeResponse:
-      allOf:
-        - $ref: "#/components/schemas/SuccessEnvelope"
-        - type: object
-          properties:
-            data:
-              type: object
-              required: [id, booking_id, kind, status, created_at]
-              properties:
-                id: { type: string, format: uuid }
-                booking_id: { type: string, format: uuid }
-                kind: { type: string }
-                status: { type: string, enum: [open, refunded, resolved] }
-                created_at: { type: string, format: date-time }
-    NotificationListResponse:
-      allOf:
-        - $ref: "#/components/schemas/SuccessEnvelope"
-        - type: object
-          properties:
-            data:
-              type: object
-              required: [items]
-              properties:
-                items: { type: array, items: { $ref: "#/components/schemas/Notification" } }
-                next_cursor: { type: string }
-    AcceptedResponse:
-      allOf:
-        - $ref: "#/components/schemas/SuccessEnvelope"
-        - type: object
-          properties:
-            data:
-              type: object
-              additionalProperties: true
-    WaitlistResponse:
-      allOf:
-        - $ref: "#/components/schemas/SuccessEnvelope"
-        - type: object
-          properties:
-            data:
-              type: object
-              required: [id, status, city]
-              properties:
-                id: { type: string, format: uuid }
-                status: { type: string, const: accepted }
-                city: { $ref: "#/components/schemas/City" }
+        id: { type: string, format: uuid }
+        name: { type: string, example: Mikocheni Warriors }
+        tag: { type: string, example: MW, description: 2–3 letter badge text. }
+        city: { type: string }
+        area: { type: string }
+        bio: { type: string }
+        badge_color: { type: string, example: "#0e3b2c" }
+        format: { type: string }
+        recruiting: { type: boolean }
+        needs: { type: string }
+        members: { type: integer }
+        open_challenges: { type: integer }
+        is_captain: { type: boolean, description: Only when authenticated. }
+        membership: { type: string, enum: [active, requested], description: Only when authenticated. }
+
+    TeamMember:
+      type: object
+      properties:
+        user_id: { type: string, format: uuid }
+        name: { type: string }
+        avatar_url: { type: string }
+        role: { type: string, enum: [captain, player] }
+        status: { type: string, enum: [active, requested] }
+
+    Challenge:
+      type: object
+      properties:
+        id: { type: string, format: uuid }
+        team_id: { type: string, format: uuid }
+        team_name: { type: string }
+        team_tag: { type: string }
+        badge_color: { type: string }
+        city: { type: string }
+        area: { type: string }
+        format: { type: string }
+        note: { type: string }
+        proposed_at: { type: string, format: date-time, nullable: true }
+        status: { type: string, enum: [open, accepted, expired] }
+        created_at: { type: string, format: date-time }
+
+    Fixture:
+      type: object
+      properties:
+        id: { type: string, format: uuid }
+        sport: { type: string, enum: [football, basketball] }
+        league: { type: string, example: Ligi Kuu Bara }
+        country: { type: string, example: Tanzania }
+        home: { type: string, example: Young Africans }
+        away: { type: string, example: Pamba SC }
+        home_score: { type: string, description: Empty until the match starts. }
+        away_score: { type: string }
+        kickoff_at: { type: string, format: date-time }
+        status: { type: string, example: NS, description: LiveScore status codes (NS, 1H, HT, FT…). }
+
+    Product:
+      type: object
+      properties:
+        id: { type: string, format: uuid }
+        name: { type: string }
+        description: { type: string }
+        price_tzs: { type: integer }
+        image_url: { type: string }
+        stock: { type: integer }
