@@ -1,7 +1,7 @@
 openapi: 3.0.3
 info:
   title: PitchTZ Client API
-  version: "2.1.0"
+  version: "2.2.0"
   description: |
     The mobile handover contract for the PitchTZ player experience. Every
     operation in this document is **deployed and live today** — this spec is
@@ -396,6 +396,31 @@ paths:
                   - $ref: "#/components/schemas/Envelope"
                   - properties:
                       data: { $ref: "#/components/schemas/Booking" }
+
+  /bookings/{bookingId}/deposit:
+    post:
+      tags: [Bookings]
+      summary: "Pay half now, settle the rest in cash at the venue"
+      description: |
+        Charges ceil(total/2) to one mobile-money number and flags the booking
+        `balance_at_venue`. Once the deposit settles the booking is CONFIRMED
+        with `balance_due_tzs` payable at the gate. Only available before any
+        other payment has started.
+      security: [{ bearerAuth: [] }]
+      parameters: [{ $ref: "#/components/parameters/bookingId" }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [phone, operator]
+              properties:
+                phone: { type: string }
+                operator: { type: string }
+      responses:
+        "200": { description: Deposit charge initiated — poll the booking. }
+        "409": { description: Already paid, payment in progress, or hold expired. }
 
   /pay/shares/{shareId}:
     get:
@@ -792,6 +817,65 @@ paths:
       responses:
         "200": { description: Charge initiated. }
 
+  /venues/{venueId}/products:
+    get:
+      tags: [Shop]
+      summary: "Venue shop: the venue's own products"
+      description: Owner-listed merchandise and consumables for this venue; buy through the normal /shop/orders flow.
+      parameters: [{ $ref: "#/components/parameters/venueId" }]
+      responses:
+        "200":
+          description: Active venue products.
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: "#/components/schemas/Envelope"
+                  - properties:
+                      data:
+                        type: array
+                        items: { $ref: "#/components/schemas/Product" }
+
+  /watch-spots:
+    get:
+      tags: [Misc]
+      summary: Approved watch spots (bars, lounges, halls)
+      responses:
+        "200":
+          description: Places to watch the big game.
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: "#/components/schemas/Envelope"
+                  - properties:
+                      data:
+                        type: array
+                        items: { $ref: "#/components/schemas/WatchSpot" }
+    post:
+      tags: [Misc]
+      summary: Apply to list a watch spot (goes to superadmin review)
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [name, area, contact_name, contact_phone]
+              properties:
+                name: { type: string }
+                area: { type: string }
+                address: { type: string }
+                latitude: { type: number }
+                longitude: { type: number }
+                screens: { type: integer }
+                entry_tzs: { type: integer, description: 0 = free entry. }
+                features: { type: array, items: { type: string } }
+                contact_name: { type: string }
+                contact_phone: { type: string }
+      responses:
+        "202": { description: Application received; emailed when approved. }
+
   /waitlist:
     post:
       tags: [Misc]
@@ -1016,6 +1100,12 @@ components:
           type: string
           format: date-time
           description: Pay before this or the slot releases; drive a visible countdown.
+        balance_at_venue:
+          type: boolean
+          description: Deposit paid online; the remainder is cash at the gate.
+        balance_due_tzs:
+          type: integer
+          description: Present when balance_at_venue — amount still owed on site.
         shares:
           type: array
           items: { $ref: "#/components/schemas/Share" }
@@ -1099,6 +1189,21 @@ components:
         status: { type: string, example: NS, description: LiveScore status codes (NS, 1H, HT, FT…). }
         live: { type: boolean, description: True while the fixture is actively in play. }
         is_favorite: { type: boolean, description: True when an authenticated user's saved teams include either side; false anonymously. }
+
+    WatchSpot:
+      type: object
+      properties:
+        id: { type: string, format: uuid }
+        name: { type: string }
+        area: { type: string }
+        address: { type: string }
+        latitude: { type: number }
+        longitude: { type: number }
+        screens: { type: integer }
+        capacity: { type: string }
+        entry_tzs: { type: integer, description: 0 = free entry. }
+        features: { type: array, items: { type: string } }
+        photo_url: { type: string }
 
     Product:
       type: object
