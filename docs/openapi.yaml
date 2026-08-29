@@ -1,7 +1,7 @@
 openapi: 3.0.3
 info:
   title: PitchTZ Client API
-  version: "2.3.0"
+  version: "2.4.0"
   description: |
     The mobile handover contract for the PitchTZ player experience. Every
     operation in this document is **deployed and live today** — this spec is
@@ -747,9 +747,11 @@ paths:
       description: |
         On-demand detail for one fixture, cached 60s server-side. Football and
         basketball return a `timeline` (minute, type: goal/own_goal/penalty_goal/
-        yellow_card/red_card/substitution, player, running score) plus
-        `half_time`; football adds `lineups`. F1 returns `results` (position,
-        driver, team, points). Only meaningful once the match has started.
+        yellow_card/red_card/substitution, player, `assist` when known, running
+        score) plus `half_time`; football adds `lineups` — per team `starters`
+        (name, shirt `number`, `position`) and `subs` (the bench). F1 returns
+        `results` (position, driver, team, points). Only meaningful once the
+        match has started.
       parameters:
         - name: fixtureId
           in: path
@@ -1208,6 +1210,20 @@ components:
         status: { type: string, example: NS, description: LiveScore status codes (NS, 1H, HT, FT…). }
         live: { type: boolean, description: True while the fixture is actively in play. }
         is_favorite: { type: boolean, description: True when an authenticated user's saved teams include either side; false anonymously. }
+        timeline:
+          type: array
+          description: >
+            Preloaded goal events for live/finished football & basketball, so
+            clients can show scorers without hitting the detail endpoint.
+            Empty for other sports and before kickoff.
+          items:
+            type: object
+            properties:
+              m: { type: integer, description: Minute. }
+              p: { type: string, description: Player (scorer). }
+              a: { type: string, description: Assist provider, when known. }
+              s: { type: string, example: "1-0", description: Running score after the event. }
+              t: { type: string, enum: [goal, own_goal, penalty_goal, yellow_card, red_card, yellow_red_card] }
 
     WatchSpot:
       type: object
