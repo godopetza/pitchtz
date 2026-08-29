@@ -119,6 +119,7 @@ func NewRouterWithDeps(deps Deps) *gin.Engine {
 		v1.GET("/teams/:id", middleware.OptionalClient(), handlers.GetTeam)
 		v1.GET("/challenges", handlers.ListChallenges)
 		v1.GET("/fixtures", middleware.OptionalClient(), handlers.ListFixtures)
+		v1.GET("/fixtures/:id/detail", handlers.GetFixtureDetail)
 		v1.GET("/me/favorite-teams", middleware.RequireClient(), handlers.ListFavoriteTeams)
 		v1.PUT("/me/favorite-teams", middleware.RequireClient(), handlers.SetFavoriteTeams)
 		v1.POST("/teams", middleware.RequireClient(), handlers.CreateTeam)

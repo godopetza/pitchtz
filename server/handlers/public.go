@@ -351,8 +351,13 @@ func ListFixtures(c *gin.Context) {
 			query = query.Where("kickoff_at >= ? AND kickoff_at < ?", start.UTC(), start.AddDate(0, 0, 1).UTC())
 		}
 	} else {
-		query = query.Where("kickoff_at >= ? AND kickoff_at <= ?",
-			time.Now().UTC().Add(-6*time.Hour), time.Now().UTC().Add(7*24*time.Hour))
+		// F1 races are weeks apart — give them a wider window so the next
+		// grand prix is always on the board.
+		now := time.Now().UTC()
+		query = query.Where(
+			"(kickoff_at >= ? AND kickoff_at <= ?) OR (sport = 'f1' AND kickoff_at >= ? AND kickoff_at <= ?)",
+			now.Add(-6*time.Hour), now.Add(7*24*time.Hour),
+			now.Add(-3*24*time.Hour), now.Add(30*24*time.Hour))
 	}
 	if sport := strings.TrimSpace(c.Query("sport")); sport != "" {
 		query = query.Where("sport = ?", sport)

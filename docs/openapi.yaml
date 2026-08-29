@@ -1,7 +1,7 @@
 openapi: 3.0.3
 info:
   title: PitchTZ Client API
-  version: "2.2.0"
+  version: "2.3.0"
   description: |
     The mobile handover contract for the PitchTZ player experience. Every
     operation in this document is **deployed and live today** — this spec is
@@ -40,7 +40,7 @@ tags:
   - name: Teams
     description: Create, explore, join, and challenge — football finds its people.
   - name: Fixtures
-    description: Scraped match board — Ligi Kuu Bara, Europe's top five, basketball.
+    description: Scraped match board — five sports (football, basketball, tennis, cricket, F1) with a per-match match centre.
   - name: Shop
     description: PitchTZ merchandise with mobile-money checkout.
   - name: Misc
@@ -740,6 +740,25 @@ paths:
         "400": { description: More than 20 teams or an invalid team name. }
         "401": { $ref: "#/components/responses/Unauthorized" }
 
+  /fixtures/{fixtureId}/detail:
+    get:
+      tags: [Fixtures]
+      summary: "Match centre: scorers, cards, half-time, lineups — or the F1 podium"
+      description: |
+        On-demand detail for one fixture, cached 60s server-side. Football and
+        basketball return a `timeline` (minute, type: goal/own_goal/penalty_goal/
+        yellow_card/red_card/substitution, player, running score) plus
+        `half_time`; football adds `lineups`. F1 returns `results` (position,
+        driver, team, points). Only meaningful once the match has started.
+      parameters:
+        - name: fixtureId
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+      responses:
+        "200": { description: Fixture detail. }
+        "404": { description: Fixture not found. }
+
   /shop/products:
     get:
       tags: [Shop]
@@ -1178,7 +1197,7 @@ components:
       type: object
       properties:
         id: { type: string, format: uuid }
-        sport: { type: string, enum: [football, basketball] }
+        sport: { type: string, enum: [football, basketball, tennis, cricket, f1] }
         league: { type: string, example: Ligi Kuu Bara }
         country: { type: string, example: Tanzania }
         home: { type: string, example: Young Africans }

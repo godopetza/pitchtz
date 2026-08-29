@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"log"
 	"net/http"
+	"strings"
 	"time"
 
 	"github.com/godopetza/pitchtz/initializers"
@@ -57,6 +58,44 @@ var wantedBasketball = map[string]string{
 	"World Cup": "FIBA World Cup",
 }
 
+// wantedStage decides, per sport, whether a LiveScore stage belongs on the
+// board and what to call its league and country columns.
+func wantedStage(sport, cnm, snm string) (league, country string, ok bool) {
+	switch sport {
+	case "football":
+		if cnm == "Tanzania" {
+			league = snm
+			if league == "Premier League" {
+				league = "Ligi Kuu Bara"
+			}
+			return league, cnm, true
+		}
+		if name, found := wantedLeagues[cnm+"|"+snm]; found {
+			return name, cnm, true
+		}
+	case "basketball":
+		if name, found := wantedBasketball[cnm]; found {
+			return name, cnm, true
+		}
+	case "tennis":
+		// Tour-level only: ATP/WTA minus Challenger/ITF undercards.
+		if (strings.HasPrefix(cnm, "ATP") || strings.HasPrefix(cnm, "WTA") || strings.Contains(cnm, "Grand Slam")) &&
+			!strings.Contains(cnm, "Challenger") {
+			return snm, cnm, true
+		}
+	case "cricket":
+		if cnm == "Test Series" || strings.Contains(cnm, "International") || strings.Contains(snm, "World Cup") {
+			return snm, cnm, true
+		}
+		for _, big := range []string{"Indian Premier League", "Caribbean Premier League", "Big Bash", "The Hundred"} {
+			if strings.Contains(snm, big) {
+				return snm, cnm, true
+			}
+		}
+	}
+	return "", "", false
+}
+
 // ScrapeFixtures pulls today plus the next two days and upserts by external
 // id, so kickoff-time changes and live statuses stay current.
 func ScrapeFixtures() error {
@@ -69,7 +108,7 @@ func ScrapeFixtures() error {
 	client := &http.Client{Timeout: 20 * time.Second}
 	total := 0
 	type sportPass struct{ path, sport string }
-	passes := []sportPass{{"soccer", "football"}, {"basketball", "basketball"}}
+	passes := []sportPass{{"soccer", "football"}, {"basketball", "basketball"}, {"tennis", "tennis"}, {"cricket", "cricket"}}
 	for _, pass := range passes {
 		if err := scrapeSportDays(ctx, client, pass.path, pass.sport, 8, &total); err != nil {
 			return err
@@ -99,7 +138,7 @@ func cleanupFixtures() {
 	// Legacy rows from before external ids were sport-prefixed can never be
 	// upserted again — they duplicate their prefixed twins, so drop them.
 	if result := initializers.DB.
-		Where("external_id NOT LIKE 'football-%' AND external_id NOT LIKE 'basketball-%'").
+		Where("external_id NOT LIKE 'football-%' AND external_id NOT LIKE 'basketball-%' AND external_id NOT LIKE 'tennis-%' AND external_id NOT LIKE 'cricket-%' AND external_id NOT LIKE 'f1-%'").
 		Delete(&models.Fixture{}); result.RowsAffected > 0 {
 		log.Printf("fixtures cleanup: dropped %d legacy-id rows", result.RowsAffected)
 	}
@@ -130,25 +169,11 @@ func scrapeSportDays(ctx context.Context, client *http.Client, sportPath, sport 
 		}
 
 		for _, stage := range payload.Stages {
-			var league string
-			var wanted bool
-			if sport == "football" {
-				league, wanted = wantedLeagues[stage.Cnm+"|"+stage.Snm]
-				if stage.Cnm == "Tanzania" {
-					league = stage.Snm
-					// LiveScore also calls Tanzania's top flight "Premier League";
-					// locals know it as Ligi Kuu Bara.
-					if league == "Premier League" {
-						league = "Ligi Kuu Bara"
-					}
-					wanted = true
-				}
-			} else {
-				league, wanted = wantedBasketball[stage.Cnm]
-			}
+			league, country, wanted := wantedStage(sport, stage.Cnm, stage.Snm)
 			if !wanted {
 				continue
 			}
+			_ = country
 			for _, event := range stage.Events {
 				if len(event.T1) == 0 || len(event.T2) == 0 || event.Eid == "" {
 					continue
@@ -159,7 +184,7 @@ func scrapeSportDays(ctx context.Context, client *http.Client, sportPath, sport 
 				}
 				externalID := sport + "-" + event.Eid
 				fixture := models.Fixture{
-					ExternalID: externalID, Sport: sport, League: league, Country: stage.Cnm,
+					ExternalID: externalID, Sport: sport, League: league, Country: country,
 					Home: event.T1[0].Nm, Away: event.T2[0].Nm,
 					KickoffAt: kickoff.UTC(), Status: event.Eps,
 					HomeScore: event.Tr1, AwayScore: event.Tr2,
@@ -215,10 +240,14 @@ func scrapeToday() error {
 	defer cancel()
 	client := &http.Client{Timeout: 20 * time.Second}
 	total := 0
-	if err := scrapeSportDays(ctx, client, "soccer", "football", 1, &total); err != nil {
-		return err
+	for _, pass := range []struct{ path, sport string }{
+		{"soccer", "football"}, {"basketball", "basketball"}, {"tennis", "tennis"}, {"cricket", "cricket"},
+	} {
+		if err := scrapeSportDays(ctx, client, pass.path, pass.sport, 1, &total); err != nil {
+			return err
+		}
 	}
-	return scrapeSportDays(ctx, client, "basketball", "basketball", 1, &total)
+	return nil
 }
 
 // StartFixtureScraper runs two loops, tuned for cost:
