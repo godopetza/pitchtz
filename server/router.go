@@ -97,6 +97,7 @@ func NewRouterWithDeps(deps Deps) *gin.Engine {
 		clientAuthed := v1.Group("/auth")
 		clientAuthed.Use(middleware.RequireClient())
 		clientAuthed.GET("/me", handlers.ClientMe)
+		clientAuthed.POST("/refresh", handlers.RefreshClientToken)
 		v1.POST("/venues/:id/reviews", middleware.RequireClient(), handlers.CreateVenueReview)
 
 		// Self-service bookings + payments (full, split, and QR pay links).
@@ -136,6 +137,7 @@ func NewRouterWithDeps(deps Deps) *gin.Engine {
 		protectedAdmin := admin.Group("")
 		protectedAdmin.Use(middleware.RequireAdmin())
 		protectedAdmin.GET("/auth/me", handlers.AdminMe)
+		protectedAdmin.POST("/auth/refresh", handlers.RefreshAdminToken)
 		protectedAdmin.POST("/auth/change-password", handlers.ChangeAdminPassword)
 		protectedAdmin.GET("/users", middleware.RequireAdminRoles(models.AdminRoleSuperAdmin), handlers.ListAdmins)
 		protectedAdmin.GET("/careers", middleware.RequireAdminRoles(models.AdminRoleSuperAdmin, models.AdminRoleOperations), handlers.AdminListCareerApplications)
@@ -169,6 +171,7 @@ func NewRouterWithDeps(deps Deps) *gin.Engine {
 		protectedOwner := owner.Group("")
 		protectedOwner.Use(middleware.RequireOwner())
 		protectedOwner.GET("/auth/me", handlers.OwnerMe)
+		protectedOwner.POST("/auth/refresh", handlers.RefreshOwnerToken)
 		protectedOwner.POST("/auth/change-password", handlers.ChangeOwnerPassword)
 		protectedOwner.POST("/bookings", handlers.CreateBooking)
 		protectedOwner.POST("/bookings/:id/pay", handlers.RequestBookingPayment)
