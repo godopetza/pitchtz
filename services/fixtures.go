@@ -115,6 +115,7 @@ func ScrapeFixtures() error {
 		}
 	}
 	cleanupFixtures()
+	refreshTimelines()
 	log.Printf("fixtures scrape: %d new fixtures", total)
 	return nil
 }
@@ -277,6 +278,7 @@ func StartFixtureScraper() {
 				if err := scrapeToday(); err != nil {
 					log.Printf("live fixtures refresh failed: %v", err)
 				}
+				refreshTimelines()
 			}
 		}
 	}()
@@ -296,4 +298,141 @@ func notifyScrapeFailure(cause error) {
 		fmt.Sprintf("Fixtures scrape failed:\n%v\n\nSource: livescore.com public JSON\nRetries continue automatically every 6 hours.", cause),
 		brandedEmail{Preheader: "Fixtures scrape failed", Eyebrow: "Ops alert", Title: "The match board needs eyes.", BodyHTML: body, ActionLabel: "Open Superadmin", ActionURL: adminAppURL(), Footnote: "Superadmin ops alert — sent at most once per day."},
 		"fixtures-scrape-failed-"+day)
+}
+
+// ── Inline scorer timelines ──────────────────────────────────────────────────
+
+type timelineEvent struct {
+	M int    `json:"m"`
+	P string `json:"p"`
+	A string `json:"a,omitempty"` // assist, for goal events
+	S string `json:"s,omitempty"`
+	T string `json:"t"`
+}
+
+var timelineLabels = map[int]string{
+	36: "goal", 37: "own_goal", 38: "penalty_goal",
+	43: "yellow_card", 45: "red_card", 44: "yellow_red_card",
+}
+
+type lsTLIncident struct {
+	Min  int            `json:"Min"`
+	IT   int            `json:"IT"`
+	Pn   string         `json:"Pn"`
+	Sc   []int          `json:"Sc"`
+	Incs []lsTLIncident `json:"Incs"`
+}
+
+func flattenTimeline(items []lsTLIncident, out *[]timelineEvent) {
+	for _, item := range items {
+		if len(item.Incs) > 0 {
+			// A group with a score is one goal: the IT-36/37/38 child is the
+			// scorer and the IT-63 child within the SAME group is the assist.
+			var goal *timelineEvent
+			assist := ""
+			for _, child := range item.Incs {
+				switch child.IT {
+				case 36, 37, 38:
+					label := timelineLabels[child.IT]
+					goal = &timelineEvent{M: child.Min, P: child.Pn, T: label}
+					if len(child.Sc) == 2 {
+						goal.S = fmt.Sprintf("%d-%d", child.Sc[0], child.Sc[1])
+					}
+				case 63:
+					assist = child.Pn
+				}
+			}
+			if goal != nil {
+				goal.A = assist
+				*out = append(*out, *goal)
+			} else {
+				flattenTimeline(item.Incs, out)
+			}
+			continue
+		}
+		label, known := timelineLabels[item.IT]
+		if !known {
+			if len(item.Sc) == 2 {
+				label = "goal"
+			} else {
+				continue
+			}
+		}
+		event := timelineEvent{M: item.Min, P: item.Pn, T: label}
+		if len(item.Sc) == 2 {
+			event.S = fmt.Sprintf("%d-%d", item.Sc[0], item.Sc[1])
+		}
+		*out = append(*out, event)
+	}
+}
+
+// refreshTimelines pulls incidents for matches that are live now, plus ones
+// that finished in the last three hours with an empty timeline (so a match
+// ending between polls still gets its final scorers). Bounded per cycle.
+func refreshTimelines() {
+	if initializers.DB == nil {
+		return
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 45*time.Second)
+	defer cancel()
+	now := time.Now().UTC()
+
+	var fixtures []models.Fixture
+	initializers.DB.
+		Where("sport IN ? AND kickoff_at BETWEEN ? AND ? AND status <> 'NS'",
+			[]string{"football", "basketball"}, now.Add(-5*time.Hour), now).
+		Limit(16).Find(&fixtures)
+
+	client := &http.Client{Timeout: 15 * time.Second}
+	for _, fixture := range fixtures {
+		finished := finishedStatuses[fixture.Status]
+		// Finished + already captured → nothing to do.
+		if finished && string(fixture.Timeline) != "[]" && len(fixture.Timeline) > 4 {
+			continue
+		}
+		sportPath := "soccer"
+		if fixture.Sport == "basketball" {
+			sportPath = "basketball"
+		}
+		eid := strings.TrimPrefix(fixture.ExternalID, fixture.Sport+"-")
+		url := fmt.Sprintf("https://prod-public-api.livescore.com/v1/api/app/incidents/%s/%s?locale=en", sportPath, eid)
+		req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
+		if err != nil {
+			continue
+		}
+		req.Header.Set("User-Agent", "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7)")
+		response, err := client.Do(req)
+		if err != nil {
+			continue
+		}
+		var payload struct {
+			Incs map[string][]lsTLIncident `json:"Incs"`
+		}
+		err = json.NewDecoder(response.Body).Decode(&payload)
+		response.Body.Close()
+		if err != nil || len(payload.Incs) == 0 {
+			continue
+		}
+		events := []timelineEvent{}
+		for _, period := range payload.Incs {
+			flattenTimeline(period, &events)
+		}
+		if len(events) == 0 {
+			continue
+		}
+		for i := 1; i < len(events); i++ {
+			for j := i; j > 0 && events[j-1].M > events[j].M; j-- {
+				events[j-1], events[j] = events[j], events[j-1]
+			}
+		}
+		if len(events) > 24 {
+			events = events[:24]
+		}
+		encoded, err := json.Marshal(events)
+		if err != nil {
+			continue
+		}
+		initializers.DB.Model(&models.Fixture{}).Where("id = ?", fixture.ID).
+			Update("timeline", encoded)
+	}
 }

@@ -2,6 +2,7 @@ package handlers
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"net/http"
 	"strconv"
@@ -384,6 +385,7 @@ func ListFixtures(c *gin.Context) {
 			"home": fixture.Home, "away": fixture.Away,
 			"home_score": fixture.HomeScore, "away_score": fixture.AwayScore,
 			"kickoff_at": fixture.KickoffAt, "status": fixture.Status,
+			"timeline":    json.RawMessage(validJSON(fixture.Timeline, "[]")),
 			"live":        services.FixtureIsLive(fixture.KickoffAt, fixture.Status),
 			"is_favorite": favorites[strings.ToLower(fixture.Home)] || favorites[strings.ToLower(fixture.Away)],
 		})

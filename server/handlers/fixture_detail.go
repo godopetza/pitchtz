@@ -69,7 +69,28 @@ type lsIncident struct {
 func flattenIncidents(items []lsIncident, side int, out *[]gin.H) {
 	for _, item := range items {
 		if len(item.Incs) > 0 {
-			flattenIncidents(item.Incs, side, out)
+			// Grouped incident = a goal with its assist (IT 63 in-group).
+			var goal gin.H
+			assist := ""
+			for _, child := range item.Incs {
+				switch child.IT {
+				case 36, 37, 38:
+					goal = gin.H{"minute": child.Min, "type": incidentLabels[child.IT], "player": child.Pn, "team": side}
+					if len(child.Sc) == 2 {
+						goal["score"] = fmt.Sprintf("%d-%d", child.Sc[0], child.Sc[1])
+					}
+				case 63:
+					assist = child.Pn
+				}
+			}
+			if goal != nil {
+				if assist != "" {
+					goal["assist"] = assist
+				}
+				*out = append(*out, goal)
+			} else {
+				flattenIncidents(item.Incs, side, out)
+			}
 			continue
 		}
 		label, known := incidentLabels[item.IT]
@@ -186,26 +207,35 @@ func GetFixtureDetail(c *gin.Context) {
 				Lu []struct {
 					Tnb int `json:"Tnb"`
 					Ps  []struct {
-						Fn   string `json:"Fn"`
-						Ln   string `json:"Ln"`
-						Snm  string `json:"Snm"`
-						Pnum int    `json:"Pnum"`
-						Pon  string `json:"Pon"`
+						Fn  string  `json:"Fn"`
+						Ln  string  `json:"Ln"`
+						Snm string  `json:"Snm"`
+						Snu int     `json:"Snu"`
+						Pon string  `json:"Pon"`
+						Fp  *string `json:"Fp"`
 					} `json:"Ps"`
 				} `json:"Lu"`
 			}
 			if lsGet(c, fmt.Sprintf("https://prod-public-api.livescore.com/v1/api/app/lineups/%s/%s?locale=en", path, eid), &lineups) == nil && len(lineups.Lu) > 0 {
 				teams := []gin.H{}
 				for _, side := range lineups.Lu {
-					players := []gin.H{}
+					starters := []gin.H{}
+					bench := []gin.H{}
 					for _, player := range side.Ps {
 						name := strings.TrimSpace(player.Fn + " " + player.Ln)
 						if name == "" {
 							name = player.Snm
 						}
-						players = append(players, gin.H{"name": name, "number": player.Pnum, "position": player.Pon})
+						entry := gin.H{"name": name, "number": player.Snu, "position": player.Pon}
+						// A formation slot (Fp) marks a starter; the rest are
+						// the bench, in shirt order as delivered.
+						if player.Fp != nil && *player.Fp != "" {
+							starters = append(starters, entry)
+						} else {
+							bench = append(bench, entry)
+						}
 					}
-					teams = append(teams, gin.H{"team": side.Tnb, "players": players})
+					teams = append(teams, gin.H{"team": side.Tnb, "players": starters, "subs": bench})
 				}
 				payload["lineups"] = teams
 			}

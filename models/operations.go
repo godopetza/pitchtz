@@ -129,6 +129,10 @@ type Fixture struct {
 	Status     string    `gorm:"not null;default:NS" json:"status"`
 	HomeScore  string    `json:"homeScore"`
 	AwayScore  string    `json:"awayScore"`
+	// Timeline: compact goal/card events captured while the match is live —
+	// [{"m":24,"p":"Ndoye","s":"0-1","t":"goal"}] — served straight from the
+	// list endpoint so clients never need a per-match request for scorers.
+	Timeline datatypes.JSON `gorm:"type:jsonb;not null;default:'[]'" json:"timeline"`
 }
 
 // WatchSpot is a place to WATCH the game — bar, lounge, hall. Publicly
