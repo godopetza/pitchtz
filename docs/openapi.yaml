@@ -1,7 +1,7 @@
 openapi: 3.0.3
 info:
   title: PitchTZ Client API
-  version: "2.0.0"
+  version: "2.1.0"
   description: |
     The mobile handover contract for the PitchTZ player experience. Every
     operation in this document is **deployed and live today** — this spec is
@@ -621,11 +621,33 @@ paths:
   /fixtures:
     get:
       tags: [Fixtures]
-      summary: Match board (next 3 days, scraped — no API key)
+      summary: Match board (next 7 days plus the last 6 hours)
       description: |
         Tanzania's Ligi Kuu Bara plus Europe's top five leagues and basketball
-        (NBA / WNBA / FIBA). Includes live scores when matches are in play.
+        (NBA / WNBA / FIBA). Includes live scores when matches are in play and,
+        when an optional Bearer token is supplied, marks fixtures involving a
+        saved team with `is_favorite: true`.
+
+        Fetch one window and filter dates client-side where practical. Poll at
+        most every 60 seconds, and only while at least one returned fixture has
+        `live: true`; stop polling as soon as no live fixture remains. The
+        server refreshes its source every 2 minutes during live windows.
+
         Data courtesy of LiveScore — keep the credit visible in your UI.
+      security: [{}, { bearerAuth: [] }]
+      parameters:
+        - name: sport
+          in: query
+          description: Limit results to one sport.
+          schema: { type: string, enum: [football, basketball] }
+        - name: league
+          in: query
+          description: Exact league name, for example `Ligi Kuu Bara`.
+          schema: { type: string }
+        - name: date
+          in: query
+          description: One calendar day in East Africa Time (Africa/Dar_es_Salaam).
+          schema: { type: string, format: date, example: "2026-08-29" }
       responses:
         "200":
           description: Fixtures ordered by kickoff.
@@ -638,6 +660,60 @@ paths:
                       data:
                         type: array
                         items: { $ref: "#/components/schemas/Fixture" }
+
+  /me/favorite-teams:
+    get:
+      tags: [Fixtures]
+      summary: List my favorite teams
+      description: Returns saved team names in creation order. These names drive `is_favorite` on authenticated fixture requests.
+      security: [{ bearerAuth: [] }]
+      responses:
+        "200":
+          description: Favorite team names.
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: "#/components/schemas/Envelope"
+                  - properties:
+                      data:
+                        type: array
+                        maxItems: 20
+                        items: { type: string, example: Young Africans }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+    put:
+      tags: [Fixtures]
+      summary: Replace my favorite teams
+      description: Replaces the complete set. Names are trimmed and matched case-insensitively; send an empty array to clear favorites.
+      security: [{ bearerAuth: [] }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [teams]
+              properties:
+                teams:
+                  type: array
+                  maxItems: 20
+                  items: { type: string, minLength: 1, maxLength: 120 }
+              example: { teams: [Young Africans, Simba SC] }
+      responses:
+        "200":
+          description: Favorite teams replaced.
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: "#/components/schemas/Envelope"
+                  - properties:
+                      data:
+                        type: object
+                        properties:
+                          count: { type: integer, example: 2 }
+        "400": { description: More than 20 teams or an invalid team name. }
+        "401": { $ref: "#/components/responses/Unauthorized" }
 
   /shop/products:
     get:
@@ -1021,6 +1097,8 @@ components:
         away_score: { type: string }
         kickoff_at: { type: string, format: date-time }
         status: { type: string, example: NS, description: LiveScore status codes (NS, 1H, HT, FT…). }
+        live: { type: boolean, description: True while the fixture is actively in play. }
+        is_favorite: { type: boolean, description: True when an authenticated user's saved teams include either side; false anonymously. }
 
     Product:
       type: object
