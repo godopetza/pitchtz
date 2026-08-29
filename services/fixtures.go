@@ -71,7 +71,7 @@ func ScrapeFixtures() error {
 	type sportPass struct{ path, sport string }
 	passes := []sportPass{{"soccer", "football"}, {"basketball", "basketball"}}
 	for _, pass := range passes {
-		if err := scrapeSport(ctx, client, pass.path, pass.sport, &total); err != nil {
+		if err := scrapeSportDays(ctx, client, pass.path, pass.sport, 8, &total); err != nil {
 			return err
 		}
 	}
@@ -79,8 +79,8 @@ func ScrapeFixtures() error {
 	return nil
 }
 
-func scrapeSport(ctx context.Context, client *http.Client, sportPath, sport string, total *int) error {
-	for offset := range 3 {
+func scrapeSportDays(ctx context.Context, client *http.Client, sportPath, sport string, days int, total *int) error {
+	for offset := range days {
 		day := time.Now().In(eatZone()).AddDate(0, 0, offset).Format("20060102")
 		url := fmt.Sprintf("https://prod-public-api.livescore.com/v1/api/app/date/%s/%s/3?locale=en&MD=1", sportPath, day)
 		req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
@@ -152,8 +152,55 @@ func scrapeSport(ctx context.Context, client *http.Client, sportPath, sport stri
 	return nil
 }
 
-// StartFixtureScraper scrapes at boot and every six hours. On failure the
-// superadmin gets one email per day, not one per retry.
+// finishedStatuses are terminal LiveScore codes — anything else after
+// kickoff counts as live (including minute markers like "45'" and "HT").
+var finishedStatuses = map[string]bool{
+	"FT": true, "AET": true, "AP": true, "Fin": true, "FIN": true,
+	"Postp": true, "Canc": true, "Aband": true, "WO": true,
+}
+
+// FixtureIsLive: kicked off within the last four hours and not finished.
+func FixtureIsLive(kickoffAt time.Time, status string) bool {
+	now := time.Now().UTC()
+	return kickoffAt.Before(now.Add(2*time.Minute)) &&
+		kickoffAt.After(now.Add(-4*time.Hour)) &&
+		status != "NS" && !finishedStatuses[status]
+}
+
+func anyLiveWindowOpen() bool {
+	if initializers.DB == nil {
+		return false
+	}
+	var count int64
+	now := time.Now().UTC()
+	// A fixture whose kickoff is near or in progress means scores can move.
+	initializers.DB.Model(&models.Fixture{}).
+		Where("kickoff_at BETWEEN ? AND ? AND status NOT IN ?",
+			now.Add(-4*time.Hour), now.Add(10*time.Minute),
+			[]string{"FT", "AET", "AP", "Fin", "FIN", "Postp", "Canc", "Aband", "WO"}).
+		Count(&count)
+	return count > 0
+}
+
+// scrapeToday refreshes only the current day — the cheap call used while
+// matches are in play to keep scores and minutes moving.
+func scrapeToday() error {
+	ctx, cancel := context.WithTimeout(context.Background(), 45*time.Second)
+	defer cancel()
+	client := &http.Client{Timeout: 20 * time.Second}
+	total := 0
+	if err := scrapeSportDays(ctx, client, "soccer", "football", 1, &total); err != nil {
+		return err
+	}
+	return scrapeSportDays(ctx, client, "basketball", "basketball", 1, &total)
+}
+
+// StartFixtureScraper runs two loops, tuned for cost:
+//   - a full 8-day sweep at boot and every six hours (2 requests × 8 days × 2 sports)
+//   - a live refresher every two minutes that fires ONLY while a match is
+//     actually in its live window, and fetches just today's page.
+//
+// On failure the superadmin gets one email per day, not one per retry.
 func StartFixtureScraper() {
 	run := func() {
 		if err := ScrapeFixtures(); err != nil {
@@ -166,6 +213,16 @@ func StartFixtureScraper() {
 		ticker := time.NewTicker(6 * time.Hour)
 		for range ticker.C {
 			run()
+		}
+	}()
+	go func() {
+		ticker := time.NewTicker(2 * time.Minute)
+		for range ticker.C {
+			if anyLiveWindowOpen() {
+				if err := scrapeToday(); err != nil {
+					log.Printf("live fixtures refresh failed: %v", err)
+				}
+			}
 		}
 	}()
 }

@@ -104,3 +104,11 @@ type Promotion struct {
 	Uses           int    `gorm:"not null;default:0" json:"uses"`
 	SpendDrivenTZS int64  `gorm:"not null;default:0" json:"spendDrivenTzs"`
 }
+
+// FavoriteTeam pins a real-world club (by fixture team name) for a user, so
+// their teams' matches always lead the match board.
+type FavoriteTeam struct {
+	UserID    uuid.UUID `gorm:"type:uuid;primaryKey" json:"userId"`
+	TeamName  string    `gorm:"primaryKey;size:120" json:"teamName"`
+	CreatedAt time.Time `json:"createdAt"`
+}

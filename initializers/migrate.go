@@ -40,6 +40,7 @@ func SyncDatabase() error {
 		&models.Challenge{},
 		&models.PitchPhoto{},
 		&models.Fixture{},
+		&models.FavoriteTeam{},
 		&models.TeamMember{},
 		&models.Match{},
 		&models.Standing{},

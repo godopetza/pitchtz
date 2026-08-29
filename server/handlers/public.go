@@ -11,6 +11,7 @@ import (
 	"github.com/gin-gonic/gin"
 	"github.com/godopetza/pitchtz/initializers"
 	"github.com/godopetza/pitchtz/models"
+	"github.com/godopetza/pitchtz/services"
 	"github.com/godopetza/pitchtz/store"
 	"github.com/godopetza/pitchtz/utils"
 	"github.com/google/uuid"
@@ -337,13 +338,40 @@ func respondStoreError(c *gin.Context, err error, resource string) {
 	utils.RespondError(c, http.StatusInternalServerError, "INTERNAL_ERROR", "could not load "+resource)
 }
 
-// ListFixtures serves the scraped match board: Tanzania first, then the top
-// European leagues, next three days.
+// ListFixtures serves the scraped match board: up to seven days ahead plus
+// today's finished games. Filters: ?sport=football|basketball, ?date=YYYY-MM-DD
+// (a single EAT day), ?league=. With a bearer token, each row carries
+// is_favorite from the user's saved teams so clients can pin them.
 func ListFixtures(c *gin.Context) {
+	query := initializers.DB.WithContext(c.Request.Context()).Model(&models.Fixture{})
+	if date := strings.TrimSpace(c.Query("date")); date != "" {
+		if day, err := time.Parse("2006-01-02", date); err == nil {
+			eat := time.FixedZone("EAT", 3*3600)
+			start := time.Date(day.Year(), day.Month(), day.Day(), 0, 0, 0, 0, eat)
+			query = query.Where("kickoff_at >= ? AND kickoff_at < ?", start.UTC(), start.AddDate(0, 0, 1).UTC())
+		}
+	} else {
+		query = query.Where("kickoff_at >= ? AND kickoff_at <= ?",
+			time.Now().UTC().Add(-6*time.Hour), time.Now().UTC().Add(7*24*time.Hour))
+	}
+	if sport := strings.TrimSpace(c.Query("sport")); sport != "" {
+		query = query.Where("sport = ?", sport)
+	}
+	if league := strings.TrimSpace(c.Query("league")); league != "" {
+		query = query.Where("league = ?", league)
+	}
 	var fixtures []models.Fixture
-	initializers.DB.WithContext(c.Request.Context()).
-		Where("kickoff_at >= ? AND kickoff_at <= ?", time.Now().UTC().Add(-3*time.Hour), time.Now().UTC().Add(72*time.Hour)).
-		Order("kickoff_at ASC").Limit(80).Find(&fixtures)
+	query.Order("kickoff_at ASC").Limit(400).Find(&fixtures)
+
+	favorites := map[string]bool{}
+	if viewer := viewerID(c); viewer != uuid.Nil {
+		var rows []models.FavoriteTeam
+		initializers.DB.WithContext(c.Request.Context()).Where("user_id = ?", viewer).Find(&rows)
+		for _, row := range rows {
+			favorites[strings.ToLower(row.TeamName)] = true
+		}
+	}
+
 	items := make([]gin.H, 0, len(fixtures))
 	for _, fixture := range fixtures {
 		items = append(items, gin.H{
@@ -351,7 +379,55 @@ func ListFixtures(c *gin.Context) {
 			"home": fixture.Home, "away": fixture.Away,
 			"home_score": fixture.HomeScore, "away_score": fixture.AwayScore,
 			"kickoff_at": fixture.KickoffAt, "status": fixture.Status,
+			"live":        services.FixtureIsLive(fixture.KickoffAt, fixture.Status),
+			"is_favorite": favorites[strings.ToLower(fixture.Home)] || favorites[strings.ToLower(fixture.Away)],
 		})
 	}
+	// Cheap for everyone: anonymous responses are cacheable for 30 seconds.
+	if len(favorites) == 0 {
+		c.Header("Cache-Control", "public, max-age=30")
+	}
 	utils.RespondSuccess(c, http.StatusOK, items, "")
+}
+
+// ListFavoriteTeams returns the signed-in user's pinned clubs.
+func ListFavoriteTeams(c *gin.Context) {
+	userID, ok := clientUserID(c)
+	if !ok {
+		return
+	}
+	var rows []models.FavoriteTeam
+	initializers.DB.WithContext(c.Request.Context()).
+		Where("user_id = ?", userID).Order("created_at ASC").Find(&rows)
+	names := make([]string, 0, len(rows))
+	for _, row := range rows {
+		names = append(names, row.TeamName)
+	}
+	utils.RespondSuccess(c, http.StatusOK, names, "")
+}
+
+// SetFavoriteTeams replaces the user's pinned clubs (max 20 names).
+func SetFavoriteTeams(c *gin.Context) {
+	userID, ok := clientUserID(c)
+	if !ok {
+		return
+	}
+	var input struct {
+		Teams []string `json:"teams" binding:"max=20,dive,min=1,max=120"`
+	}
+	if err := c.ShouldBindJSON(&input); err != nil {
+		utils.RespondError(c, http.StatusBadRequest, "INVALID_INPUT", "teams must be up to 20 names")
+		return
+	}
+	initializers.DB.WithContext(c.Request.Context()).Where("user_id = ?", userID).Delete(&models.FavoriteTeam{})
+	seen := map[string]bool{}
+	for _, name := range input.Teams {
+		trimmed := strings.TrimSpace(name)
+		if trimmed == "" || seen[strings.ToLower(trimmed)] {
+			continue
+		}
+		seen[strings.ToLower(trimmed)] = true
+		initializers.DB.WithContext(c.Request.Context()).Create(&models.FavoriteTeam{UserID: userID, TeamName: trimmed})
+	}
+	utils.RespondSuccess(c, http.StatusOK, gin.H{"count": len(seen)}, "Favorite teams saved.")
 }
