@@ -96,6 +96,13 @@ func cleanupFixtures() {
 		Delete(&models.Fixture{}); result.RowsAffected > 0 {
 		log.Printf("fixtures cleanup: dropped %d never-resolved rows", result.RowsAffected)
 	}
+	// Legacy rows from before external ids were sport-prefixed can never be
+	// upserted again — they duplicate their prefixed twins, so drop them.
+	if result := initializers.DB.
+		Where("external_id NOT LIKE 'football-%' AND external_id NOT LIKE 'basketball-%'").
+		Delete(&models.Fixture{}); result.RowsAffected > 0 {
+		log.Printf("fixtures cleanup: dropped %d legacy-id rows", result.RowsAffected)
+	}
 }
 
 func scrapeSportDays(ctx context.Context, client *http.Client, sportPath, sport string, days int, total *int) error {
