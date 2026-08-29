@@ -75,8 +75,27 @@ func ScrapeFixtures() error {
 			return err
 		}
 	}
+	cleanupFixtures()
 	log.Printf("fixtures scrape: %d new fixtures", total)
 	return nil
+}
+
+// cleanupFixtures keeps the table lean and honest:
+//   - results older than 14 days are history nobody reads here — deleted;
+//   - a fixture still "NS" a full day after kickoff was postponed, abandoned
+//     or never tracked by the source — deleted rather than left "awaiting
+//     result" forever (a rescheduled match returns via the sweep with a new
+//     kickoff time anyway).
+func cleanupFixtures() {
+	now := time.Now().UTC()
+	if result := initializers.DB.Where("kickoff_at < ?", now.AddDate(0, 0, -14)).
+		Delete(&models.Fixture{}); result.RowsAffected > 0 {
+		log.Printf("fixtures cleanup: purged %d old rows", result.RowsAffected)
+	}
+	if result := initializers.DB.Where("status = ? AND kickoff_at < ?", "NS", now.Add(-24*time.Hour)).
+		Delete(&models.Fixture{}); result.RowsAffected > 0 {
+		log.Printf("fixtures cleanup: dropped %d never-resolved rows", result.RowsAffected)
+	}
 }
 
 func scrapeSportDays(ctx context.Context, client *http.Client, sportPath, sport string, days int, total *int) error {
