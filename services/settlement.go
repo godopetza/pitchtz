@@ -50,6 +50,15 @@ func SettleShareTransaction(ctx context.Context, transaction models.PaymentTrans
 			return err
 		}
 		next := models.BookingStatusPartPaid
+		// A deposit with balance-at-venue confirms the slot: the venue
+		// collects the rest in cash at the gate.
+		if booking.BalanceAtVenue && paidTotal > 0 {
+			next = models.BookingStatusConfirmed
+			if booking.Status != models.BookingStatusConfirmed {
+				id := booking.ID
+				confirmedBookingID = &id
+			}
+		}
 		if paidTotal >= booking.TotalTZS {
 			next = models.BookingStatusConfirmed
 			if booking.Status != models.BookingStatusConfirmed {

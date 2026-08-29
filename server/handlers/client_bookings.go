@@ -81,6 +81,10 @@ func bookingWithShares(c *gin.Context, booking models.Booking) gin.H {
 	if booking.Status == models.BookingStatusPending {
 		payload["hold_expires_at"] = booking.CreatedAt.Add(services.BookingHoldWindow()).UTC()
 	}
+	payload["balance_at_venue"] = booking.BalanceAtVenue
+	if booking.BalanceAtVenue {
+		payload["balance_due_tzs"] = booking.TotalTZS - paid
+	}
 	return payload
 }
 
@@ -241,6 +245,54 @@ func ClientPayBooking(c *gin.Context) {
 		PayerUserID: &userID,
 		PayerPhone:  strings.TrimSpace(input.Phone),
 		AmountTZS:   outstanding,
+		Kind:        "gateway",
+		Status:      "unpaid",
+	}
+	if err := initializers.DB.WithContext(c.Request.Context()).Create(&share).Error; err != nil {
+		utils.RespondError(c, http.StatusInternalServerError, "PAYMENT_INIT_FAILED", "could not start the payment")
+		return
+	}
+	chargeShareViaMalipo(c, booking, share, input.Provider, input.Phone, input.Operator)
+}
+
+// ClientDepositBooking charges half now and marks the rest payable in cash
+// at the venue gate; once the deposit settles the slot is confirmed.
+func ClientDepositBooking(c *gin.Context) {
+	booking, ok := clientOwnedBooking(c)
+	if !ok {
+		return
+	}
+	if !requireMalipo(c) {
+		return
+	}
+	var input clientPayInput
+	if err := c.ShouldBindJSON(&input); err != nil {
+		utils.RespondError(c, http.StatusBadRequest, "INVALID_INPUT", "provider, phone, and operator are required")
+		return
+	}
+	if booking.Status == models.BookingStatusCancelled {
+		utils.RespondError(c, http.StatusConflict, "BOOKING_EXPIRED", "this hold expired and the slot was released — book again")
+		return
+	}
+	outstanding := outstandingTZS(c, booking)
+	if outstanding <= 0 {
+		utils.RespondError(c, http.StatusConflict, "ALREADY_PAID", "this booking is already fully paid")
+		return
+	}
+	if outstanding < booking.TotalTZS {
+		utils.RespondError(c, http.StatusConflict, "PAYMENT_STARTED", "a payment is already in progress — finish that one")
+		return
+	}
+	deposit := (booking.TotalTZS + 1) / 2
+	initializers.DB.WithContext(c.Request.Context()).Model(&models.Booking{}).
+		Where("id = ?", booking.ID).Update("balance_at_venue", true)
+	booking.BalanceAtVenue = true
+	userID, _ := clientUserID(c)
+	share := models.PaymentShare{
+		BookingID:   booking.ID,
+		PayerUserID: &userID,
+		PayerPhone:  strings.TrimSpace(input.Phone),
+		AmountTZS:   deposit,
 		Kind:        "gateway",
 		Status:      "unpaid",
 	}

@@ -130,3 +130,22 @@ type Fixture struct {
 	HomeScore  string    `json:"homeScore"`
 	AwayScore  string    `json:"awayScore"`
 }
+
+// WatchSpot is a place to WATCH the game — bar, lounge, hall. Publicly
+// submitted, superadmin-approved before it appears on the client site.
+type WatchSpot struct {
+	Base
+	Name         string         `gorm:"not null" json:"name"`
+	Area         string         `gorm:"not null;index" json:"area"`
+	Address      string         `json:"address"`
+	Latitude     float64        `json:"latitude"`
+	Longitude    float64        `json:"longitude"`
+	Screens      int            `gorm:"not null;default:1" json:"screens"`
+	Capacity     string         `json:"capacity"`
+	EntryTZS     int64          `gorm:"not null;default:0" json:"entryTzs"`
+	Features     datatypes.JSON `gorm:"type:jsonb;not null;default:'[]'" json:"features"`
+	PhotoR2Key   string         `json:"photoR2Key"`
+	ContactName  string         `json:"contactName"`
+	ContactPhone string         `json:"contactPhone"`
+	Status       string         `gorm:"not null;default:pending;index" json:"status"`
+}

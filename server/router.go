@@ -83,6 +83,9 @@ func NewRouterWithDeps(deps Deps) *gin.Engine {
 		v1.GET("/venues/:id/availability", publicAPI.GetVenueAvailability)
 		v1.GET("/venues/:id/reviews", publicAPI.ListVenueReviews)
 		v1.GET("/venues/:id/extras", publicAPI.ListVenueExtras)
+		v1.GET("/venues/:id/products", handlers.ListVenueProducts)
+		v1.GET("/watch-spots", handlers.ListWatchSpots)
+		v1.POST("/watch-spots", enrollLimiter.Middleware(), handlers.ApplyWatchSpot)
 		v1.POST("/waitlist", waitlistLimiter.Middleware(), publicAPI.JoinWaitlist)
 		v1.POST("/venues/enroll", enrollLimiter.Middleware(), publicAPI.EnrollVenue)
 		v1.POST("/careers", enrollLimiter.Middleware(), handlers.SubmitCareerApplication)
@@ -106,6 +109,7 @@ func NewRouterWithDeps(deps Deps) *gin.Engine {
 		v1.GET("/bookings/:id", middleware.RequireClient(), handlers.ClientGetBooking)
 		v1.POST("/bookings/:id/pay", middleware.RequireClient(), handlers.ClientPayBooking)
 		v1.POST("/bookings/:id/split", middleware.RequireClient(), handlers.ClientSplitBooking)
+		v1.POST("/bookings/:id/deposit", middleware.RequireClient(), handlers.ClientDepositBooking)
 		// Public pay-a-share endpoints: the unguessable share id is the capability.
 		v1.GET("/pay/shares/:id", handlers.GetPublicShare)
 		v1.POST("/pay/shares/:id/pay", clientAuthLimiter.Middleware(), handlers.PayPublicShare)
@@ -150,6 +154,8 @@ func NewRouterWithDeps(deps Deps) *gin.Engine {
 		protectedAdmin.POST("/venues", venueReviewRoles, handlers.AdminCreateVenue)
 		protectedAdmin.PATCH("/venues/:id/status", venueReviewRoles, handlers.AdminSetVenueStatus)
 		protectedAdmin.PATCH("/pitches/:id/status", venueReviewRoles, handlers.AdminSetPitchStatus)
+		protectedAdmin.GET("/watch-spots", venueReviewRoles, handlers.AdminListWatchSpots)
+		protectedAdmin.PATCH("/watch-spots/:id/status", venueReviewRoles, handlers.AdminSetWatchSpotStatus)
 		protectedAdmin.DELETE("/venues/:id", middleware.RequireAdminRoles(models.AdminRoleSuperAdmin), handlers.AdminDeleteVenue)
 		protectedAdmin.GET("/stats", handlers.AdminPlatformStats)
 		protectedAdmin.GET("/notifications", handlers.AdminNotifications)
@@ -192,6 +198,10 @@ func NewRouterWithDeps(deps Deps) *gin.Engine {
 		protectedOwner.POST("/venues/:id/extras", handlers.OwnerCreateExtra)
 		protectedOwner.PATCH("/extras/:id", handlers.OwnerUpdateExtra)
 		protectedOwner.DELETE("/extras/:id", handlers.OwnerDeleteExtra)
+		protectedOwner.GET("/venues/:id/products", handlers.OwnerListProducts)
+		protectedOwner.POST("/venues/:id/products", handlers.OwnerCreateProduct)
+		protectedOwner.PATCH("/products/:id", handlers.OwnerUpdateProduct)
+		protectedOwner.DELETE("/products/:id", handlers.OwnerDeleteProduct)
 	}
 
 	router.NoRoute(func(c *gin.Context) {

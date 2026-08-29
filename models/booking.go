@@ -21,6 +21,9 @@ type Booking struct {
 	PitchFeeTZS    int64      `gorm:"not null" json:"pitchFeeTzs"`
 	ServiceFeeTZS  int64      `gorm:"not null;default:3000" json:"serviceFeeTzs"`
 	TotalTZS       int64      `gorm:"not null" json:"totalTzs"`
+	// BalanceAtVenue: the player paid a deposit online and settles the rest
+	// in cash at the gate — a part-paid booking with this flag is confirmed.
+	BalanceAtVenue bool       `gorm:"not null;default:false" json:"balanceAtVenue"`
 	CheckedInAt    *time.Time `json:"checkedInAt,omitempty"`
 	CancelledAt    *time.Time `json:"cancelledAt,omitempty"`
 }

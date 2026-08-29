@@ -151,7 +151,14 @@ func NotifyBookingConfirmed(bookingID uuid.UUID) {
 
 	inDar := booking.StartsAt.In(eatZone())
 	when := inDar.Format("Mon, 02 Jan 2006 · 15:04") + "–" + booking.EndsAt.In(eatZone()).Format("15:04")
-	facts := [][2]string{{"Booking code", booking.Code}, {"Venue", venue.Name}, {"Pitch", pitch.Name}, {"When (EAT)", when}, {"Total paid", formatTZS(booking.TotalTZS)}}
+	var paidTotal int64
+	initializers.DB.WithContext(ctx).Model(&models.PaymentShare{}).
+		Where("booking_id = ? AND status = ?", booking.ID, "paid").
+		Select("COALESCE(SUM(amount_tzs), 0)").Scan(&paidTotal)
+	facts := [][2]string{{"Booking code", booking.Code}, {"Venue", venue.Name}, {"Pitch", pitch.Name}, {"When (EAT)", when}, {"Paid online", formatTZS(paidTotal)}}
+	if booking.BalanceAtVenue && paidTotal < booking.TotalTZS {
+		facts = append(facts, [2]string{"Balance due at the gate", formatTZS(booking.TotalTZS - paidTotal)})
+	}
 
 	if customerEmail != "" {
 		body := fmt.Sprintf(`<p style="margin:0 0 14px">Hello <strong style="color:#17201a">%s</strong>, your booking is confirmed and fully paid. Show the booking code at the gate.</p>%s<p style="margin:14px 0 0">Karibu uwanjani — mchezo mzuri!</p>`,
@@ -284,4 +291,21 @@ func SendChallengeAcceptedEmail(captainEmail, captainName, ownTeam, opponentTeam
 		fmt.Sprintf("Hello %s,\n\nIt's on — %s vs %s.\n\nAgree a time and book a pitch: %s\n\nBen\nPitchTZ Founder", captainName, ownTeam, opponentTeam, clientAppURL()),
 		brandedEmail{Preheader: ownTeam + " vs " + opponentTeam, Eyebrow: "Challenge accepted", Title: "Game on.", BodyHTML: body, ActionLabel: "Book the pitch", ActionURL: clientAppURL(), Footnote: "You are receiving this because your team is in a PitchTZ challenge."},
 		"challenge-"+matchID.String()+"-"+strings.ToLower(ownTeam))
+}
+
+// SendWatchSpotApplicationEmail tells the superadmin a bar/lounge wants on
+// the watch-parties map.
+func SendWatchSpotApplicationEmail(name, area, contactName, contactPhone string, spotID uuid.UUID) {
+	admin := adminNotifyEmail()
+	if admin == "" {
+		return
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+	body := fmt.Sprintf(`<p style="margin:0 0 12px">A new watch-spot application is waiting for review.</p>%s`,
+		factRows([][2]string{{"Spot", name}, {"Area", area}, {"Contact", contactName}, {"Phone", contactPhone}}))
+	sendBranded(ctx, admin, "Watch spot application: "+name,
+		fmt.Sprintf("Watch spot application:\n%s (%s)\nContact: %s %s\n\nReview: %s", name, area, contactName, contactPhone, adminAppURL()),
+		brandedEmail{Preheader: "Watch spot application: " + name, Eyebrow: "Needs review", Title: "A new place wants the big game.", BodyHTML: body, ActionLabel: "Review in Superadmin", ActionURL: adminAppURL(), Footnote: "Superadmin copy of a platform event."},
+		"watchspot-"+spotID.String())
 }
