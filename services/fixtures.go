@@ -357,6 +357,9 @@ type timelineEvent struct {
 
 var timelineLabels = map[int]string{
 	36: "goal", 37: "own_goal", 38: "penalty_goal",
+	// A penalty that did not go in is still part of the story — the client
+	// marks it with a struck-through ball rather than counting it.
+	39: "penalty_missed",
 	43: "yellow_card", 45: "red_card", 44: "yellow_red_card",
 }
 
@@ -400,13 +403,12 @@ func flattenTimeline(items []lsTLIncident, out *[]timelineEvent) {
 			}
 			continue
 		}
+		// Only incident types we actually recognise. An unknown type that
+		// happens to carry a running score used to be guessed as a goal, which
+		// invented goals that never happened.
 		label, known := timelineLabels[item.IT]
 		if !known {
-			if len(item.Sc) == 2 {
-				label = "goal"
-			} else {
-				continue
-			}
+			continue
 		}
 		event := timelineEvent{M: item.Min, P: item.Pn, T: label, Tm: item.Nm}
 		if len(item.Sc) == 2 {

@@ -97,12 +97,10 @@ func flattenIncidents(items []lsIncident, out *[]gin.H) {
 			}
 			continue
 		}
+		// Same rule as the board: never guess a goal from a score array alone.
 		label, known := incidentLabels[item.IT]
-		if !known && len(item.Sc) == 0 {
+		if !known || label == "" {
 			continue
-		}
-		if label == "" {
-			label = "goal"
 		}
 		entry := gin.H{"minute": item.Min, "type": label, "player": item.Pn, "team": item.Nm}
 		if len(item.Sc) == 2 {
