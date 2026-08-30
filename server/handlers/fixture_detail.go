@@ -132,6 +132,7 @@ func GetFixtureDetail(c *gin.Context) {
 	payload := gin.H{
 		"sport": fixture.Sport, "league": fixture.League,
 		"home": fixture.Home, "away": fixture.Away,
+		"home_img": fixture.HomeImg, "away_img": fixture.AwayImg,
 		"home_score": fixture.HomeScore, "away_score": fixture.AwayScore,
 		"status": fixture.Status, "kickoff_at": fixture.KickoffAt,
 	}
@@ -238,6 +239,38 @@ func GetFixtureDetail(c *gin.Context) {
 					teams = append(teams, gin.H{"team": side.Tnb, "players": starters, "subs": bench})
 				}
 				payload["lineups"] = teams
+			}
+
+			// Match stats: possession, shots, corners… once the game is on.
+			var stats struct {
+				Stat []struct {
+					Tnb  int     `json:"Tnb"`
+					Pss  int     `json:"Pss"`
+					Shon int     `json:"Shon"`
+					Shof int     `json:"Shof"`
+					Cos  int     `json:"Cos"`
+					Fls  int     `json:"Fls"`
+					Ofs  int     `json:"Ofs"`
+					Ycs  int     `json:"Ycs"`
+					Rcs  int     `json:"Rcs"`
+					Xg   float64 `json:"Xg"`
+				} `json:"Stat"`
+			}
+			if lsGet(c, fmt.Sprintf("https://prod-public-api.livescore.com/v1/api/app/statistics/%s/%s?locale=en", path, eid), &stats) == nil && len(stats.Stat) == 2 {
+				home, away := stats.Stat[0], stats.Stat[1]
+				if home.Tnb == 2 {
+					home, away = away, home
+				}
+				payload["stats"] = []gin.H{
+					{"key": "possession", "home": home.Pss, "away": away.Pss, "pct": true},
+					{"key": "shots_on", "home": home.Shon, "away": away.Shon},
+					{"key": "shots_off", "home": home.Shof, "away": away.Shof},
+					{"key": "corners", "home": home.Cos, "away": away.Cos},
+					{"key": "fouls", "home": home.Fls, "away": away.Fls},
+					{"key": "offsides", "home": home.Ofs, "away": away.Ofs},
+					{"key": "yellow_cards", "home": home.Ycs, "away": away.Ycs},
+					{"key": "xg", "home": home.Xg, "away": away.Xg},
+				}
 			}
 		}
 	}

@@ -129,6 +129,9 @@ type Fixture struct {
 	Status     string    `gorm:"not null;default:NS" json:"status"`
 	HomeScore  string    `json:"homeScore"`
 	AwayScore  string    `json:"awayScore"`
+	// Team badge URLs from the scrape source's CDN (empty when unknown).
+	HomeImg string `json:"homeImg"`
+	AwayImg string `json:"awayImg"`
 	// Timeline: compact goal/card events captured while the match is live —
 	// [{"m":24,"p":"Ndoye","s":"0-1","t":"goal"}] — served straight from the
 	// list endpoint so clients never need a per-match request for scorers.

@@ -40,6 +40,7 @@ func main() {
 	services.StartHoldSweeper()
 	services.StartFixtureScraper()
 	services.StartF1Scraper()
+	services.StartBoxingScraper()
 
 	router := server.NewRouter()
 	port := os.Getenv("PORT")

@@ -26,7 +26,17 @@ var wantedLeagues = map[string]string{
 }
 
 type lsTeam struct {
-	Nm string `json:"Nm"`
+	Nm  string `json:"Nm"`
+	Img string `json:"Img"`
+}
+
+// badgeURL turns the feed's relative badge path into the CDN URL clients can
+// render directly; empty in stays empty out.
+func badgeURL(img string) string {
+	if img == "" {
+		return ""
+	}
+	return "https://lsm-static-prod.livescore.com/medium/" + img
 }
 type lsEvent struct {
 	Eid string   `json:"Eid"`
@@ -139,7 +149,7 @@ func cleanupFixtures() {
 	// Legacy rows from before external ids were sport-prefixed can never be
 	// upserted again — they duplicate their prefixed twins, so drop them.
 	if result := initializers.DB.
-		Where("external_id NOT LIKE 'football-%' AND external_id NOT LIKE 'basketball-%' AND external_id NOT LIKE 'tennis-%' AND external_id NOT LIKE 'cricket-%' AND external_id NOT LIKE 'f1-%'").
+		Where("external_id NOT LIKE 'football-%' AND external_id NOT LIKE 'basketball-%' AND external_id NOT LIKE 'tennis-%' AND external_id NOT LIKE 'cricket-%' AND external_id NOT LIKE 'f1-%' AND external_id NOT LIKE 'boxing-%'").
 		Delete(&models.Fixture{}); result.RowsAffected > 0 {
 		log.Printf("fixtures cleanup: dropped %d legacy-id rows", result.RowsAffected)
 	}
@@ -187,6 +197,7 @@ func scrapeSportDays(ctx context.Context, client *http.Client, sportPath, sport 
 				fixture := models.Fixture{
 					ExternalID: externalID, Sport: sport, League: league, Country: country,
 					Home: event.T1[0].Nm, Away: event.T2[0].Nm,
+					HomeImg: badgeURL(event.T1[0].Img), AwayImg: badgeURL(event.T2[0].Img),
 					KickoffAt: kickoff.UTC(), Status: event.Eps,
 					HomeScore: event.Tr1, AwayScore: event.Tr2,
 				}
@@ -194,7 +205,8 @@ func scrapeSportDays(ctx context.Context, client *http.Client, sportPath, sport 
 				if initializers.DB.First(&existing, "external_id = ?", externalID).Error == nil {
 					initializers.DB.Model(&models.Fixture{}).Where("id = ?", existing.ID).
 						Updates(map[string]any{"kickoff_at": fixture.KickoffAt, "status": fixture.Status,
-							"league": fixture.League, "home_score": fixture.HomeScore, "away_score": fixture.AwayScore})
+							"league": fixture.League, "home_score": fixture.HomeScore, "away_score": fixture.AwayScore,
+							"home_img": fixture.HomeImg, "away_img": fixture.AwayImg})
 				} else if err := initializers.DB.Create(&fixture).Error; err == nil {
 					*total++
 				}
@@ -303,11 +315,12 @@ func notifyScrapeFailure(cause error) {
 // ── Inline scorer timelines ──────────────────────────────────────────────────
 
 type timelineEvent struct {
-	M int    `json:"m"`
-	P string `json:"p"`
-	A string `json:"a,omitempty"` // assist, for goal events
-	S string `json:"s,omitempty"`
-	T string `json:"t"`
+	M  int    `json:"m"`
+	P  string `json:"p"`
+	A  string `json:"a,omitempty"` // assist, for goal events
+	S  string `json:"s,omitempty"`
+	T  string `json:"t"`
+	Tm int    `json:"tm,omitempty"` // side: 1 home, 2 away
 }
 
 var timelineLabels = map[int]string{
@@ -318,6 +331,7 @@ var timelineLabels = map[int]string{
 type lsTLIncident struct {
 	Min  int            `json:"Min"`
 	IT   int            `json:"IT"`
+	Nm   int            `json:"Nm"` // side: 1 home, 2 away
 	Pn   string         `json:"Pn"`
 	Sc   []int          `json:"Sc"`
 	Incs []lsTLIncident `json:"Incs"`
@@ -334,7 +348,11 @@ func flattenTimeline(items []lsTLIncident, out *[]timelineEvent) {
 				switch child.IT {
 				case 36, 37, 38:
 					label := timelineLabels[child.IT]
-					goal = &timelineEvent{M: child.Min, P: child.Pn, T: label}
+					side := child.Nm
+					if side == 0 {
+						side = item.Nm
+					}
+					goal = &timelineEvent{M: child.Min, P: child.Pn, T: label, Tm: side}
 					if len(child.Sc) == 2 {
 						goal.S = fmt.Sprintf("%d-%d", child.Sc[0], child.Sc[1])
 					}
@@ -358,7 +376,7 @@ func flattenTimeline(items []lsTLIncident, out *[]timelineEvent) {
 				continue
 			}
 		}
-		event := timelineEvent{M: item.Min, P: item.Pn, T: label}
+		event := timelineEvent{M: item.Min, P: item.Pn, T: label, Tm: item.Nm}
 		if len(item.Sc) == 2 {
 			event.S = fmt.Sprintf("%d-%d", item.Sc[0], item.Sc[1])
 		}

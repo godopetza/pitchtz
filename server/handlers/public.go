@@ -352,11 +352,11 @@ func ListFixtures(c *gin.Context) {
 			query = query.Where("kickoff_at >= ? AND kickoff_at < ?", start.UTC(), start.AddDate(0, 0, 1).UTC())
 		}
 	} else {
-		// F1 races are weeks apart — give them a wider window so the next
-		// grand prix is always on the board.
+		// F1 races and boxing cards are weeks apart — give them a wider
+		// window so the next one is always on the board.
 		now := time.Now().UTC()
 		query = query.Where(
-			"(kickoff_at >= ? AND kickoff_at <= ?) OR (sport = 'f1' AND kickoff_at >= ? AND kickoff_at <= ?)",
+			"(kickoff_at >= ? AND kickoff_at <= ?) OR (sport IN ('f1','boxing') AND kickoff_at >= ? AND kickoff_at <= ?)",
 			now.Add(-6*time.Hour), now.Add(7*24*time.Hour),
 			now.Add(-3*24*time.Hour), now.Add(30*24*time.Hour))
 	}
@@ -383,6 +383,7 @@ func ListFixtures(c *gin.Context) {
 		items = append(items, gin.H{
 			"id": fixture.ID, "sport": fixture.Sport, "league": fixture.League, "country": fixture.Country,
 			"home": fixture.Home, "away": fixture.Away,
+			"home_img": fixture.HomeImg, "away_img": fixture.AwayImg,
 			"home_score": fixture.HomeScore, "away_score": fixture.AwayScore,
 			"kickoff_at": fixture.KickoffAt, "status": fixture.Status,
 			"timeline":    json.RawMessage(validJSON(fixture.Timeline, "[]")),
