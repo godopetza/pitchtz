@@ -66,13 +66,17 @@ type lsIncident struct {
 	Incs []lsIncident `json:"Incs"`
 }
 
-func flattenIncidents(items []lsIncident, side int, out *[]gin.H) {
+func flattenIncidents(items []lsIncident, out *[]gin.H) {
 	for _, item := range items {
 		if len(item.Incs) > 0 {
 			// Grouped incident = a goal with its assist (IT 63 in-group).
 			var goal gin.H
 			assist := ""
 			for _, child := range item.Incs {
+				side := child.Nm
+				if side == 0 {
+					side = item.Nm
+				}
 				switch child.IT {
 				case 36, 37, 38:
 					goal = gin.H{"minute": child.Min, "type": incidentLabels[child.IT], "player": child.Pn, "team": side}
@@ -89,7 +93,7 @@ func flattenIncidents(items []lsIncident, side int, out *[]gin.H) {
 				}
 				*out = append(*out, goal)
 			} else {
-				flattenIncidents(item.Incs, side, out)
+				flattenIncidents(item.Incs, out)
 			}
 			continue
 		}
@@ -100,7 +104,7 @@ func flattenIncidents(items []lsIncident, side int, out *[]gin.H) {
 		if label == "" {
 			label = "goal"
 		}
-		entry := gin.H{"minute": item.Min, "type": label, "player": item.Pn, "team": side}
+		entry := gin.H{"minute": item.Min, "type": label, "player": item.Pn, "team": item.Nm}
 		if len(item.Sc) == 2 {
 			entry["score"] = fmt.Sprintf("%d-%d", item.Sc[0], item.Sc[1])
 		}
@@ -189,7 +193,7 @@ func GetFixtureDetail(c *gin.Context) {
 			// entries carry team side via ordering — the flat list keeps
 			// minute order which is what a timeline needs.
 			for _, period := range incidents.Incs {
-				flattenIncidents(period, 0, &timeline)
+				flattenIncidents(period, &timeline)
 			}
 			// sort by minute
 			for i := 1; i < len(timeline); i++ {
