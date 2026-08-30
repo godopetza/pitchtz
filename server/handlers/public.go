@@ -357,7 +357,7 @@ func ListFixtures(c *gin.Context) {
 		now := time.Now().UTC()
 		query = query.Where(
 			"(kickoff_at >= ? AND kickoff_at <= ?) OR (sport IN ('f1','boxing') AND kickoff_at >= ? AND kickoff_at <= ?)",
-			now.Add(-6*time.Hour), now.Add(7*24*time.Hour),
+			now.Add(-3*24*time.Hour), now.Add(7*24*time.Hour),
 			now.Add(-3*24*time.Hour), now.Add(30*24*time.Hour))
 	}
 	if sport := strings.TrimSpace(c.Query("sport")); sport != "" {
@@ -367,7 +367,7 @@ func ListFixtures(c *gin.Context) {
 		query = query.Where("league = ?", league)
 	}
 	var fixtures []models.Fixture
-	query.Order("kickoff_at ASC").Limit(400).Find(&fixtures)
+	query.Order("kickoff_at ASC").Limit(600).Find(&fixtures)
 
 	favorites := map[string]bool{}
 	if viewer := viewerID(c); viewer != uuid.Nil {
