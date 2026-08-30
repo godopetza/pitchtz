@@ -265,6 +265,13 @@ func RequestJoinTeam(c *gin.Context) {
 	if captain.Email != nil {
 		go services.SendTeamJoinRequestEmail(*captain.Email, captain.Name, player.Name, team.Name, team.ID)
 	}
+	go services.SendToUser(team.CaptainID,
+		services.Text{EN: "New join request", SW: "Ombi jipya la kujiunga"},
+		services.Text{
+			EN: player.Name + " wants to join " + team.Name,
+			SW: player.Name + " anataka kujiunga na " + team.Name,
+		},
+		map[string]string{"type": "team_join_request", "team_id": team.ID.String()})
 	utils.RespondSuccess(c, http.StatusCreated, gin.H{"status": memberStatusRequested}, "Request sent — the captain will review it.")
 }
 
@@ -310,6 +317,15 @@ func DecideJoinRequest(c *gin.Context) {
 	var player models.User
 	if initializers.DB.WithContext(c.Request.Context()).First(&player, "id = ?", playerID).Error == nil && player.Email != nil {
 		go services.SendTeamDecisionEmail(*player.Email, player.Name, team.Name, input.Accept, team.ID)
+	}
+	if input.Accept {
+		go services.SendToUser(playerID,
+			services.Text{EN: "You're in! 🎉", SW: "Umekubaliwa! 🎉"},
+			services.Text{
+				EN: "You joined " + team.Name,
+				SW: "Umejiunga na " + team.Name,
+			},
+			map[string]string{"type": "team_accepted", "team_id": team.ID.String()})
 	}
 	utils.RespondSuccess(c, http.StatusOK, gin.H{"accepted": input.Accept}, "Decision saved.")
 }
@@ -465,6 +481,13 @@ func AcceptChallenge(c *gin.Context) {
 	if awayCaptain.Email != nil {
 		go services.SendChallengeAcceptedEmail(*awayCaptain.Email, awayCaptain.Name, accepterTeam.Name, homeTeam.Name, match.ID)
 	}
+	go services.SendToUsers([]uuid.UUID{homeTeam.CaptainID, accepterTeam.CaptainID},
+		services.Text{EN: "Challenge accepted 🔥", SW: "Changamoto imekubaliwa 🔥"},
+		services.Text{
+			EN: homeTeam.Name + " vs " + accepterTeam.Name + " is on — agree a time.",
+			SW: homeTeam.Name + " dhidi ya " + accepterTeam.Name + " imepangwa — kubalianeni muda.",
+		},
+		map[string]string{"type": "challenge_accepted", "match_id": match.ID.String()})
 	utils.RespondSuccess(c, http.StatusOK, gin.H{"match_id": match.ID}, "Challenge accepted — arrange the game!")
 }
 

@@ -122,6 +122,8 @@ func NewRouterWithDeps(deps Deps) *gin.Engine {
 		v1.GET("/fixtures/:id/detail", handlers.GetFixtureDetail)
 		v1.GET("/me/favorite-teams", middleware.RequireClient(), handlers.ListFavoriteTeams)
 		v1.PUT("/me/favorite-teams", middleware.RequireClient(), handlers.SetFavoriteTeams)
+		v1.POST("/me/devices", middleware.RequireClient(), handlers.RegisterDevice)
+		v1.DELETE("/me/devices", middleware.RequireClient(), handlers.UnregisterDevice)
 		v1.POST("/teams", middleware.RequireClient(), handlers.CreateTeam)
 		v1.GET("/me/teams", middleware.RequireClient(), handlers.MyTeams)
 		v1.POST("/teams/:id/join", middleware.RequireClient(), handlers.RequestJoinTeam)

@@ -37,6 +37,8 @@ func main() {
 		log.Print("DB and DATABASE_URL are not set; using the in-memory store")
 	}
 
+	initializers.InitFirebase()
+
 	services.StartHoldSweeper()
 	services.StartFixtureScraper()
 	services.StartF1Scraper()

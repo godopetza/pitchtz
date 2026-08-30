@@ -132,3 +132,20 @@ type Review struct {
 	OwnerReply string         `json:"ownerReply"`
 	RepliedAt  *time.Time     `json:"repliedAt,omitempty"`
 }
+
+// DeviceToken is one push target — a single install of the mobile app. FCM
+// rotates tokens, so the token string itself is the identity: a re-register
+// after a refresh updates the existing row instead of duplicating it, and a
+// phone that changes hands moves to the new signed-in user rather than
+// pushing one person's bookings to another's lock screen.
+type DeviceToken struct {
+	Base
+	UserID     uuid.UUID `gorm:"type:uuid;not null;index" json:"userId"`
+	Token      string    `gorm:"not null;uniqueIndex" json:"token"`
+	Platform   string    `gorm:"not null;default:android;index" json:"platform"`
+	AppVersion string    `json:"appVersion"`
+	// Language mirrors the user's choice at register time so a push can be
+	// written in their language without a join.
+	Language   string    `gorm:"not null;default:sw" json:"language"`
+	LastSeenAt time.Time `gorm:"not null" json:"lastSeenAt"`
+}

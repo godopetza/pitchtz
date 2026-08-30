@@ -160,6 +160,18 @@ func NotifyBookingConfirmed(bookingID uuid.UUID) {
 		facts = append(facts, [2]string{"Balance due at the gate", formatTZS(booking.TotalTZS - paidTotal)})
 	}
 
+	// Push lands on the phone the moment the money settles — the email is the
+	// receipt, this is the "you're in" the player actually feels.
+	if booking.UserID != nil {
+		go SendToUser(*booking.UserID,
+			Text{EN: "Booking confirmed ⚽", SW: "Booking imethibitishwa ⚽"},
+			Text{
+				EN: fmt.Sprintf("%s at %s · %s. Code %s", pitch.Name, venue.Name, when, booking.Code),
+				SW: fmt.Sprintf("%s katika %s · %s. Namba %s", pitch.Name, venue.Name, when, booking.Code),
+			},
+			map[string]string{"type": "booking_confirmed", "booking_id": booking.ID.String(), "code": booking.Code})
+	}
+
 	if customerEmail != "" {
 		body := fmt.Sprintf(`<p style="margin:0 0 14px">Hello <strong style="color:#17201a">%s</strong>, your booking is confirmed and fully paid. Show the booking code at the gate.</p>%s<p style="margin:14px 0 0">Karibu uwanjani — mchezo mzuri!</p>`,
 			html.EscapeString(customerName), factRows(facts))

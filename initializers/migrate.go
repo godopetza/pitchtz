@@ -51,6 +51,7 @@ func SyncDatabase() error {
 		&models.AdminStaff{},
 		&models.AdminCredential{},
 		&models.OwnerCredential{},
+		&models.DeviceToken{},
 		&models.PasswordResetToken{},
 		&models.EmailOTP{},
 		&models.ShopProduct{},

@@ -1,7 +1,7 @@
 openapi: 3.0.3
 info:
   title: PitchTZ Client API
-  version: "2.5.0"
+  version: "2.6.0"
   description: |
     The mobile handover contract for the PitchTZ player experience. Every
     operation in this document is **deployed and live today** — this spec is
@@ -40,9 +40,11 @@ tags:
   - name: Teams
     description: Create, explore, join, and challenge — football finds its people.
   - name: Fixtures
-    description: Scraped match board — five sports (football, basketball, tennis, cricket, F1) with a per-match match centre.
+    description: Scraped match board — six sports (football, basketball, tennis, cricket, F1, boxing) with a per-match match centre.
   - name: Shop
     description: PitchTZ merchandise with mobile-money checkout.
+  - name: Notifications
+    description: Push notification device registration (Firebase Cloud Messaging).
   - name: Misc
 
 security: []
@@ -685,6 +687,80 @@ paths:
                       data:
                         type: array
                         items: { $ref: "#/components/schemas/Fixture" }
+
+  /me/devices:
+    post:
+      tags: [Notifications]
+      summary: Register this device for push notifications
+      description: |
+        Call after sign-in and again on every FCM `onTokenRefresh`. Idempotent:
+        the token is the identity, so re-registering updates the existing row,
+        and a device that signs in as a different player is reassigned rather
+        than leaving the previous account subscribed to it.
+
+        Best-effort on the client — a failure here must never block the app.
+        `language` defaults to the account's own language when omitted, and
+        decides which language that device's notifications are written in.
+      security: [{ bearerAuth: [] }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [token]
+              properties:
+                token: { type: string, minLength: 32, maxLength: 512, description: The FCM registration token. }
+                platform: { type: string, enum: [android, ios], default: android }
+                app_version: { type: string, maxLength: 40, example: "1.0.3+12" }
+                language: { type: string, enum: [en, sw], description: Defaults to the account's language. }
+              example: { token: "fPz9…", platform: android, app_version: "1.0.3+12", language: sw }
+      responses:
+        "200":
+          description: Device registered.
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: "#/components/schemas/Envelope"
+                  - properties:
+                      data:
+                        type: object
+                        properties:
+                          registered: { type: boolean, example: true }
+        "400": { description: Missing or malformed token. }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+    delete:
+      tags: [Notifications]
+      summary: Unregister this device
+      description: |
+        Call on sign-out so a shared phone stops receiving the previous
+        player's bookings. Deleting a token that is already gone is a success,
+        not a 404.
+      security: [{ bearerAuth: [] }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [token]
+              properties:
+                token: { type: string, minLength: 32, maxLength: 512 }
+      responses:
+        "200":
+          description: Device removed.
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: "#/components/schemas/Envelope"
+                  - properties:
+                      data:
+                        type: object
+                        properties:
+                          registered: { type: boolean, example: false }
+        "401": { $ref: "#/components/responses/Unauthorized" }
 
   /me/favorite-teams:
     get:
