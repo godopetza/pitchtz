@@ -267,6 +267,10 @@ func OwnerVenueBookings(c *gin.Context) {
 		CustomerName string
 		AccountPhone string
 		PaidTZS      int64
+		PayOperator  string
+		PayProvider  string
+		PayStatus    string
+		PayAttempts  int
 	}
 	var rows []row
 	query := initializers.DB.WithContext(c.Request.Context()).
@@ -274,7 +278,15 @@ func OwnerVenueBookings(c *gin.Context) {
 		Select(`bookings.*, pitches.name AS pitch_name,
 			COALESCE(users.name, '') AS customer_name,
 			COALESCE(users.phone, '') AS account_phone,
-			COALESCE((SELECT SUM(amount_tzs) FROM payment_shares WHERE payment_shares.booking_id = bookings.id AND payment_shares.status = 'paid'), 0) AS paid_tzs`).
+			COALESCE((SELECT SUM(amount_tzs) FROM payment_shares WHERE payment_shares.booking_id = bookings.id AND payment_shares.status = 'paid'), 0) AS paid_tzs,
+			COALESCE((SELECT pt.operator FROM payment_shares ps JOIN payment_transactions pt ON pt.share_id = ps.id
+				WHERE ps.booking_id = bookings.id ORDER BY pt.created_at DESC LIMIT 1), '') AS pay_operator,
+			COALESCE((SELECT pt.provider FROM payment_shares ps JOIN payment_transactions pt ON pt.share_id = ps.id
+				WHERE ps.booking_id = bookings.id ORDER BY pt.created_at DESC LIMIT 1), '') AS pay_provider,
+			COALESCE((SELECT pt.status FROM payment_shares ps JOIN payment_transactions pt ON pt.share_id = ps.id
+				WHERE ps.booking_id = bookings.id ORDER BY pt.created_at DESC LIMIT 1), '') AS pay_status,
+			COALESCE((SELECT COUNT(*) FROM payment_shares ps JOIN payment_transactions pt ON pt.share_id = ps.id
+				WHERE ps.booking_id = bookings.id), 0) AS pay_attempts`).
 		Joins("JOIN pitches ON pitches.id = bookings.pitch_id").
 		Joins("LEFT JOIN users ON users.id = bookings.user_id").
 		Where("pitches.venue_id = ?", venueID)
@@ -313,6 +325,11 @@ func OwnerVenueBookings(c *gin.Context) {
 			"balance_at_venue": r.BalanceAtVenue,
 			"cancel_reason":    r.CancelReason,
 			"cancel_detail":    r.CancelDetail,
+			// Which rail the money went down, and whether it was ever tried at all.
+			"pay_operator": r.PayOperator,
+			"pay_provider": r.PayProvider,
+			"pay_status":   r.PayStatus,
+			"pay_attempts": r.PayAttempts,
 		})
 	}
 	utils.RespondSuccess(c, http.StatusOK, items, "")

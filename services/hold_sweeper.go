@@ -30,8 +30,12 @@ func ReleaseExpiredHolds() int64 {
 		return 0
 	}
 	cutoff := time.Now().UTC().Add(-BookingHoldWindow())
-	result := initializers.DB.Exec(`
-		UPDATE bookings SET status = 'cancelled', cancelled_at = NOW(), cancel_reason = 'hold_expired'
+
+	// A lapsed hold has two very different stories behind it, and the desk
+	// needs to tell them apart: nobody ever pressed pay (a browsing dropout),
+	// or somebody tried and their money never arrived (a payments problem).
+	// The eligibility clause is identical; only the explanation differs.
+	const eligible = `
 		WHERE status = 'pending'
 		  AND created_at < ?
 		  AND id NOT IN (SELECT booking_id FROM payment_shares WHERE status = 'paid')
@@ -39,15 +43,50 @@ func ReleaseExpiredHolds() int64 {
 		    SELECT ps.booking_id FROM payment_shares ps
 		    JOIN payment_transactions pt ON pt.share_id = ps.id
 		    WHERE pt.status IN ('pending', 'completed')
+		  )`
+
+	const anyAttempt = `
+		  AND EXISTS (
+		    SELECT 1 FROM payment_shares ps
+		    JOIN payment_transactions pt ON pt.share_id = ps.id
+		    WHERE ps.booking_id = bookings.id
+		  )`
+
+	// Tried and failed: name the operator they used, so "why did my M-Pesa
+	// not go through?" has an answer without digging through logs.
+	tried := initializers.DB.Exec(`
+		UPDATE bookings SET status = 'cancelled', cancelled_at = NOW(),
+			cancel_reason = 'hold_expired_after_attempt',
+			cancel_detail = COALESCE((
+				SELECT NULLIF(TRIM(COALESCE(pt.failure_reason, '')), '')
+				FROM payment_shares ps
+				JOIN payment_transactions pt ON pt.share_id = ps.id
+				WHERE ps.booking_id = bookings.id
+				ORDER BY pt.created_at DESC LIMIT 1
+			), cancel_detail, '')`+eligible+anyAttempt, cutoff)
+	if tried.Error != nil {
+		log.Printf("hold sweeper (attempted): %v", tried.Error)
+	}
+
+	// Never attempted: the slot was held and simply abandoned.
+	untouched := initializers.DB.Exec(`
+		UPDATE bookings SET status = 'cancelled', cancelled_at = NOW(),
+			cancel_reason = 'hold_expired_no_attempt'`+eligible+`
+		  AND NOT EXISTS (
+		    SELECT 1 FROM payment_shares ps
+		    JOIN payment_transactions pt ON pt.share_id = ps.id
+		    WHERE ps.booking_id = bookings.id
 		  )`, cutoff)
-	if result.Error != nil {
-		log.Printf("hold sweeper: %v", result.Error)
-		return 0
+	if untouched.Error != nil {
+		log.Printf("hold sweeper (never attempted): %v", untouched.Error)
 	}
-	if result.RowsAffected > 0 {
-		log.Printf("hold sweeper: released %d expired holds", result.RowsAffected)
+
+	released := tried.RowsAffected + untouched.RowsAffected
+	if released > 0 {
+		log.Printf("hold sweeper: released %d expired holds (%d after a failed payment, %d never attempted)",
+			released, tried.RowsAffected, untouched.RowsAffected)
 	}
-	return result.RowsAffected
+	return released
 }
 
 // StartHoldSweeper runs ReleaseExpiredHolds once a minute for the life of the
