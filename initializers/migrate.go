@@ -2,6 +2,7 @@ package initializers
 
 import (
 	"fmt"
+	"log"
 
 	"github.com/godopetza/pitchtz/models"
 	"gorm.io/gorm"
@@ -68,7 +69,30 @@ func SyncDatabase() error {
 		return fmt.Errorf("automigrate: %w", err)
 	}
 
-	return ensureBookingConstraints(DB)
+	if err := ensureBookingConstraints(DB); err != nil {
+		return err
+	}
+	return backfillBookingContacts(DB)
+}
+
+// backfillBookingContacts copies each existing booking's account name and
+// phone onto the booking itself, once, so a call desk can reach the people
+// who booked before contacts were stored. Only fills blanks, so it never
+// overwrites a contact captured at booking time and is safe to re-run.
+func backfillBookingContacts(db *gorm.DB) error {
+	result := db.Exec(`UPDATE bookings SET
+			contact_name = COALESCE(NULLIF(bookings.contact_name, ''), COALESCE(users.name, '')),
+			contact_phone = COALESCE(NULLIF(bookings.contact_phone, ''), COALESCE(users.phone, ''))
+		FROM users
+		WHERE users.id = bookings.user_id
+		  AND (bookings.contact_phone = '' OR bookings.contact_name = '')`)
+	if result.Error != nil {
+		return fmt.Errorf("backfill booking contacts: %w", result.Error)
+	}
+	if result.RowsAffected > 0 {
+		log.Printf("backfilled contact details on %d bookings", result.RowsAffected)
+	}
+	return nil
 }
 
 // ensureBookingConstraints adds a GiST exclusion constraint that rejects any

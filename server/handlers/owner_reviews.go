@@ -218,6 +218,7 @@ func OwnerVenueBookings(c *gin.Context) {
 		models.Booking
 		PitchName    string
 		CustomerName string
+		AccountPhone string
 		PaidTZS      int64
 	}
 	var rows []row
@@ -225,6 +226,7 @@ func OwnerVenueBookings(c *gin.Context) {
 		Table("bookings").
 		Select(`bookings.*, pitches.name AS pitch_name,
 			COALESCE(users.name, '') AS customer_name,
+			COALESCE(users.phone, '') AS account_phone,
 			COALESCE((SELECT SUM(amount_tzs) FROM payment_shares WHERE payment_shares.booking_id = bookings.id AND payment_shares.status = 'paid'), 0) AS paid_tzs`).
 		Joins("JOIN pitches ON pitches.id = bookings.pitch_id").
 		Joins("LEFT JOIN users ON users.id = bookings.user_id").
@@ -242,10 +244,26 @@ func OwnerVenueBookings(c *gin.Context) {
 
 	items := make([]gin.H, 0, len(rows))
 	for _, r := range rows {
+		// Who to call. Prefer the number captured on the booking; fall back to
+		// the account for rows created before contacts were stored. Held slots
+		// nobody has paid for stay anonymous — an abandoned hold is not a lead,
+		// and the owner has no business with that person's number yet.
+		contactName, contactPhone := r.ContactName, r.ContactPhone
+		if contactName == "" {
+			contactName = r.CustomerName
+		}
+		if contactPhone == "" {
+			contactPhone = r.AccountPhone
+		}
+		if r.Status == models.BookingStatusPending && r.PaidTZS == 0 {
+			contactPhone = ""
+		}
 		items = append(items, gin.H{
-			"id": r.ID, "code": r.Code, "pitch": r.PitchName, "customer": r.CustomerName,
-			"starts_at": r.StartsAt, "ends_at": r.EndsAt, "status": r.Status,
+			"id": r.ID, "code": r.Code, "pitch": r.PitchName, "customer": contactName,
+			"contact_phone": contactPhone,
+			"starts_at":     r.StartsAt, "ends_at": r.EndsAt, "status": r.Status,
 			"total_tzs": r.TotalTZS, "paid_tzs": r.PaidTZS,
+			"balance_at_venue": r.BalanceAtVenue,
 		})
 	}
 	utils.RespondSuccess(c, http.StatusOK, items, "")

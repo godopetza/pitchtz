@@ -88,6 +88,8 @@ func CreateBooking(c *gin.Context) {
 		StartsAt:      input.StartsAt.UTC(),
 		EndsAt:        input.EndsAt.UTC(),
 		Source:        source,
+		ContactName:   strings.TrimSpace(input.CustomerName),
+		ContactPhone:  strings.TrimSpace(input.CustomerPhone),
 		Status:        models.BookingStatusPending,
 		PitchFeeTZS:   pitchFee,
 		ServiceFeeTZS: serviceFee,

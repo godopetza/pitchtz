@@ -8,13 +8,20 @@ import (
 
 type Booking struct {
 	Base
-	Code           string     `gorm:"not null;uniqueIndex" json:"code"`
-	PitchID        uuid.UUID  `gorm:"type:uuid;not null;uniqueIndex:idx_booking_pitch_start,priority:1" json:"pitchId"`
-	UserID         *uuid.UUID `gorm:"type:uuid;index" json:"userId,omitempty"`
-	TeamID         *uuid.UUID `gorm:"type:uuid;index" json:"teamId,omitempty"`
-	StartsAt       time.Time  `gorm:"not null;uniqueIndex:idx_booking_pitch_start,priority:2" json:"startsAt"`
-	EndsAt         time.Time  `gorm:"not null;index" json:"endsAt"`
-	Source         string     `gorm:"not null;default:app" json:"source"`
+	Code     string     `gorm:"not null;uniqueIndex" json:"code"`
+	PitchID  uuid.UUID  `gorm:"type:uuid;not null;uniqueIndex:idx_booking_pitch_start,priority:1" json:"pitchId"`
+	UserID   *uuid.UUID `gorm:"type:uuid;index" json:"userId,omitempty"`
+	TeamID   *uuid.UUID `gorm:"type:uuid;index" json:"teamId,omitempty"`
+	StartsAt time.Time  `gorm:"not null;uniqueIndex:idx_booking_pitch_start,priority:2" json:"startsAt"`
+	EndsAt   time.Time  `gorm:"not null;index" json:"endsAt"`
+	Source   string     `gorm:"not null;default:app" json:"source"`
+	// ContactName / ContactPhone are captured on the booking itself, not read
+	// through UserID, for three reasons: walk-ins have no real account, the
+	// person who books is not always the person to call, and a player who
+	// later changes their number must not rewrite who to ring about a game
+	// that already happened. This is what a call desk dials.
+	ContactName    string     `gorm:"not null;default:''" json:"contactName"`
+	ContactPhone   string     `gorm:"not null;default:'';index" json:"contactPhone"`
 	Status         string     `gorm:"not null;default:pending;index" json:"status"`
 	RepeatRule     string     `gorm:"not null;default:once" json:"repeatRule"`
 	RepeatParentID *uuid.UUID `gorm:"type:uuid;index" json:"repeatParentId,omitempty"`

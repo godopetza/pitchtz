@@ -137,6 +137,15 @@ func ClientCreateBooking(c *gin.Context) {
 	pitchFee := int64(math.Round(float64(pitch.BasePriceTZS) * hours))
 	const serviceFee = 3000
 
+	// Snapshot who to call for THIS booking. Taken now, not joined later, so
+	// the desk still has a working number if the player edits their profile.
+	var booker models.User
+	initializers.DB.WithContext(c.Request.Context()).First(&booker, "id = ?", userID)
+	contactPhone := ""
+	if booker.Phone != nil {
+		contactPhone = strings.TrimSpace(*booker.Phone)
+	}
+
 	booking := models.Booking{
 		Code:          bookingCode(),
 		PitchID:       input.PitchID,
@@ -144,6 +153,8 @@ func ClientCreateBooking(c *gin.Context) {
 		StartsAt:      input.StartsAt.UTC(),
 		EndsAt:        input.EndsAt.UTC(),
 		Source:        "app",
+		ContactName:   strings.TrimSpace(booker.Name),
+		ContactPhone:  contactPhone,
 		Status:        models.BookingStatusPending,
 		PitchFeeTZS:   pitchFee,
 		ServiceFeeTZS: serviceFee,
