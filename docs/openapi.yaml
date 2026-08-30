@@ -1,7 +1,7 @@
 openapi: 3.0.3
 info:
   title: PitchTZ Client API
-  version: "2.4.0"
+  version: "2.5.0"
   description: |
     The mobile handover contract for the PitchTZ player experience. Every
     operation in this document is **deployed and live today** — this spec is
@@ -748,10 +748,12 @@ paths:
         On-demand detail for one fixture, cached 60s server-side. Football and
         basketball return a `timeline` (minute, type: goal/own_goal/penalty_goal/
         yellow_card/red_card/substitution, player, `assist` when known, running
-        score) plus `half_time`; football adds `lineups` — per team `starters`
-        (name, shirt `number`, `position`) and `subs` (the bench). F1 returns
-        `results` (position, driver, team, points). Only meaningful once the
-        match has started.
+        score, `team` side 1/2) plus `half_time`; football adds `lineups` — per
+        team `starters` (name, shirt `number`, `position`), `subs` (the bench) —
+        and `stats` (possession, shots on/off, corners, fouls, offsides, yellow
+        cards, xG as {key, home, away, pct?} rows). F1 returns `results`
+        (position, driver, team, points). Boxing rows carry the scoreboard
+        only. Only meaningful once the match has started.
       parameters:
         - name: fixtureId
           in: path
@@ -1199,11 +1201,13 @@ components:
       type: object
       properties:
         id: { type: string, format: uuid }
-        sport: { type: string, enum: [football, basketball, tennis, cricket, f1] }
+        sport: { type: string, enum: [football, basketball, tennis, cricket, f1, boxing] }
         league: { type: string, example: Ligi Kuu Bara }
         country: { type: string, example: Tanzania }
         home: { type: string, example: Young Africans }
         away: { type: string, example: Pamba SC }
+        home_img: { type: string, description: Team badge URL from the data source's CDN; empty when unknown. }
+        away_img: { type: string }
         home_score: { type: string, description: Empty until the match starts. }
         away_score: { type: string }
         kickoff_at: { type: string, format: date-time }
@@ -1224,6 +1228,7 @@ components:
               a: { type: string, description: Assist provider, when known. }
               s: { type: string, example: "1-0", description: Running score after the event. }
               t: { type: string, enum: [goal, own_goal, penalty_goal, yellow_card, red_card, yellow_red_card] }
+              tm: { type: integer, enum: [1, 2], description: "Side: 1 home, 2 away; absent when unknown." }
 
     WatchSpot:
       type: object
