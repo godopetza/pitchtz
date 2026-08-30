@@ -248,6 +248,23 @@ func MalipoPaymentCallback(c *gin.Context) {
 	}
 
 	settled := strings.EqualFold(callback.Status, "completed") || strings.EqualFold(callback.Status, "succeeded")
+	// Keep the provider's explanation when a charge fails. Without this the
+	// booking just quietly lapses and nobody — player, owner or support — can
+	// say whether the prompt was declined, timed out or never arrived.
+	if !settled {
+		reason := strings.TrimSpace(callback.FailureReason)
+		if reason == "" {
+			reason = strings.TrimSpace(callback.Status)
+		}
+		if reason != "" {
+			if len(reason) > 300 {
+				reason = reason[:300]
+			}
+			initializers.DB.WithContext(c.Request.Context()).Model(&models.PaymentTransaction{}).
+				Where("id = ?", transaction.ID).Update("failure_reason", reason)
+			services.MarkBookingPaymentFailed(c.Request.Context(), transaction.ShareID, reason)
+		}
+	}
 	err = services.SettleShareTransaction(c.Request.Context(), transaction, settled, callback.PaymentID)
 	if err != nil {
 		utils.RespondError(c, http.StatusInternalServerError, "CALLBACK_APPLY_FAILED", "could not apply the callback")

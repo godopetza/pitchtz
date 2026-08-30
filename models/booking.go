@@ -33,6 +33,12 @@ type Booking struct {
 	BalanceAtVenue bool       `gorm:"not null;default:false" json:"balanceAtVenue"`
 	CheckedInAt    *time.Time `json:"checkedInAt,omitempty"`
 	CancelledAt    *time.Time `json:"cancelledAt,omitempty"`
+	// Why a booking ended. CancelReason is a stable code the UI can translate
+	// ("hold_expired", "payment_failed"); CancelDetail carries the provider's
+	// raw explanation when there is one. A cancelled booking with neither is
+	// pre-dating this and simply unexplained.
+	CancelReason string `json:"cancelReason,omitempty"`
+	CancelDetail string `json:"cancelDetail,omitempty"`
 }
 
 type BookingExtra struct {
@@ -58,14 +64,18 @@ type PaymentShare struct {
 
 type PaymentTransaction struct {
 	Base
-	ShareID        uuid.UUID  `gorm:"type:uuid;not null;index" json:"shareId"`
-	Provider       string     `gorm:"not null" json:"provider"`
-	Operator       string     `json:"operator"`
-	ProviderRef    string     `gorm:"index" json:"providerRef"`
-	IdempotencyKey string     `gorm:"not null;uniqueIndex" json:"idempotencyKey"`
-	AmountTZS      int64      `gorm:"not null" json:"amountTzs"`
-	Direction      string     `gorm:"not null;default:charge" json:"direction"`
-	Status         string     `gorm:"not null;default:initiated;index" json:"status"`
-	WebhookAt      *time.Time `json:"webhookAt,omitempty"`
-	ReconciledAt   *time.Time `json:"reconciledAt,omitempty"`
+	ShareID        uuid.UUID `gorm:"type:uuid;not null;index" json:"shareId"`
+	Provider       string    `gorm:"not null" json:"provider"`
+	Operator       string    `json:"operator"`
+	ProviderRef    string    `gorm:"index" json:"providerRef"`
+	IdempotencyKey string    `gorm:"not null;uniqueIndex" json:"idempotencyKey"`
+	AmountTZS      int64     `gorm:"not null" json:"amountTzs"`
+	Direction      string    `gorm:"not null;default:charge" json:"direction"`
+	Status         string    `gorm:"not null;default:initiated;index" json:"status"`
+	// FailureReason is the provider's own words when a charge fails — "user
+	// cancelled the prompt", "insufficient balance". Kept verbatim so support
+	// can tell a player exactly what their network said.
+	FailureReason string     `json:"failureReason"`
+	WebhookAt     *time.Time `json:"webhookAt,omitempty"`
+	ReconciledAt  *time.Time `json:"reconciledAt,omitempty"`
 }

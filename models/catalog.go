@@ -24,6 +24,10 @@ type User struct {
 	Role              string     `gorm:"not null;default:player;index" json:"role"`
 	FPLTeamID         *int64     `json:"fplTeamId,omitempty"`
 	WhatsAppOptIn     bool       `gorm:"not null;default:false" json:"whatsappOptIn"`
+	// LastVenueID is the venue an owner was last working in, so the portal
+	// reopens where they left off instead of snapping back to their first
+	// venue on every reload.
+	LastVenueID *uuid.UUID `gorm:"type:uuid" json:"lastVenueId,omitempty"`
 }
 
 type City struct {

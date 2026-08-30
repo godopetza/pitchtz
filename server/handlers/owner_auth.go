@@ -32,6 +32,7 @@ type ownerDTO struct {
 	Status             string      `json:"status"`
 	MustChangePassword bool        `json:"must_change_password"`
 	Venues             []uuid.UUID `json:"venue_ids"`
+	LastVenueID        *uuid.UUID  `json:"last_venue_id,omitempty"`
 	LastLoginProvider  string      `json:"last_login_provider,omitempty"`
 	LastLoginAt        *time.Time  `json:"last_login_at,omitempty"`
 	CreatedAt          time.Time   `json:"created_at"`
@@ -169,5 +170,34 @@ func toOwnerDTO(c *gin.Context, user models.User, credential models.OwnerCredent
 	return ownerDTO{
 		ID: user.ID, Name: user.Name, Email: email, AvatarURL: user.AvatarURL, Status: credential.Status,
 		MustChangePassword: credential.MustChangePassword, Venues: venueIDs, LastLoginProvider: user.LastLoginProvider, LastLoginAt: user.LastLoginAt, CreatedAt: user.CreatedAt,
+		LastVenueID: user.LastVenueID,
 	}
+}
+
+// SetOwnerLastVenue remembers which venue the owner is working in so the
+// portal reopens there on their next visit, from any device. Silently ignores
+// a venue that is not theirs rather than erroring — this is a convenience,
+// never something worth interrupting the user for.
+func SetOwnerLastVenue(c *gin.Context) {
+	userID, ok := ownerUserID(c)
+	if !ok {
+		return
+	}
+	var input struct {
+		VenueID uuid.UUID `json:"venue_id" binding:"required"`
+	}
+	if err := c.ShouldBindJSON(&input); err != nil {
+		utils.RespondError(c, http.StatusBadRequest, "INVALID_INPUT", "venue_id is required")
+		return
+	}
+	var owned int64
+	initializers.DB.WithContext(c.Request.Context()).Model(&models.Venue{}).
+		Where("id = ? AND owner_id = ?", input.VenueID, userID).Count(&owned)
+	if owned == 0 {
+		utils.RespondError(c, http.StatusForbidden, "NOT_YOUR_VENUE", "this venue is not on your account")
+		return
+	}
+	initializers.DB.WithContext(c.Request.Context()).Model(&models.User{}).
+		Where("id = ?", userID).Update("last_venue_id", input.VenueID)
+	utils.RespondSuccess(c, http.StatusOK, gin.H{"last_venue_id": input.VenueID}, "")
 }

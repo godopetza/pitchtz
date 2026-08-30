@@ -2,6 +2,7 @@ package handlers
 
 import (
 	"context"
+	"encoding/json"
 	"net/http"
 	"os"
 	"strings"
@@ -13,6 +14,7 @@ import (
 	"github.com/godopetza/pitchtz/services"
 	"github.com/godopetza/pitchtz/utils"
 	"github.com/google/uuid"
+	"gorm.io/datatypes"
 )
 
 type reviewReplyInput struct {
@@ -76,6 +78,44 @@ type ownerPitchInput struct {
 	PhotoR2Keys []string `json:"photo_r2_keys" binding:"max=12,dive,max=200"`
 	Surface     string   `json:"surface" binding:"max=40"`
 	Status      string   `json:"status" binding:"omitempty,oneof=active closed"`
+	// OpenHours lets an owner set this pitch's own playing window while they
+	// are creating or editing it, instead of hunting for a separate screen.
+	// Shape: {"mon":{"open":"08:00","close":"22:00"},…}; a missing day is
+	// closed, and omitting the field entirely leaves the hours untouched.
+	OpenHours map[string]*struct {
+		Open  string `json:"open" binding:"omitempty,len=5"`
+		Close string `json:"close" binding:"omitempty,len=5"`
+	} `json:"open_hours"`
+}
+
+// pitchOpenHoursJSON validates and encodes a submitted opening-hours map.
+// Returns ok=false when the input is unusable so the caller leaves the stored
+// hours alone rather than blanking a pitch's schedule on a malformed request.
+func pitchOpenHoursJSON(input ownerPitchInput) ([]byte, bool) {
+	if input.OpenHours == nil {
+		return nil, false
+	}
+	clean := map[string]map[string]string{}
+	for day, window := range input.OpenHours {
+		day = strings.ToLower(strings.TrimSpace(day))
+		switch day {
+		case "mon", "tue", "wed", "thu", "fri", "sat", "sun":
+		default:
+			continue
+		}
+		if window == nil || window.Open == "" || window.Close == "" {
+			continue // an omitted or blank day means closed
+		}
+		if window.Close <= window.Open {
+			continue // a window that ends before it starts is not a day
+		}
+		clean[day] = map[string]string{"open": window.Open, "close": window.Close}
+	}
+	encoded, err := json.Marshal(clean)
+	if err != nil {
+		return nil, false
+	}
+	return encoded, true
 }
 
 // syncPitchPhotos replaces a pitch's photo gallery. The first key doubles as
@@ -134,6 +174,9 @@ func OwnerCreatePitch(c *gin.Context) {
 		VenueID: venueID, Name: strings.TrimSpace(input.Name), Format: strings.TrimSpace(input.Format),
 		Surface: surface, BasePriceTZS: input.PriceTZS, PhotoR2Key: strings.TrimSpace(input.PhotoR2Key),
 	}
+	if hours, ok := pitchOpenHoursJSON(input); ok {
+		pitch.OpenHours = datatypes.JSON(hours)
+	}
 	if err := initializers.DB.WithContext(c.Request.Context()).Create(&pitch).Error; err != nil {
 		utils.RespondError(c, http.StatusInternalServerError, "PITCH_CREATE_FAILED", "could not create the pitch")
 		return
@@ -182,6 +225,9 @@ func OwnerUpdatePitch(c *gin.Context) {
 	}
 	if strings.TrimSpace(input.PhotoR2Key) != "" {
 		updates["photo_r2_key"] = strings.TrimSpace(input.PhotoR2Key)
+	}
+	if hours, ok := pitchOpenHoursJSON(input); ok {
+		updates["open_hours"] = datatypes.JSON(hours)
 	}
 	// Owners open/close their own pitch; only an admin can lift a suspension.
 	if input.Status != "" {
@@ -265,6 +311,8 @@ func OwnerVenueBookings(c *gin.Context) {
 			"starts_at":     r.StartsAt, "ends_at": r.EndsAt, "status": r.Status,
 			"total_tzs": r.TotalTZS, "paid_tzs": r.PaidTZS,
 			"balance_at_venue": r.BalanceAtVenue,
+			"cancel_reason":    r.CancelReason,
+			"cancel_detail":    r.CancelDetail,
 		})
 	}
 	utils.RespondSuccess(c, http.StatusOK, items, "")

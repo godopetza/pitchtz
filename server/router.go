@@ -184,6 +184,7 @@ func NewRouterWithDeps(deps Deps) *gin.Engine {
 		protectedOwner.GET("/auth/me", handlers.OwnerMe)
 		protectedOwner.POST("/auth/refresh", handlers.RefreshOwnerToken)
 		protectedOwner.POST("/auth/change-password", handlers.ChangeOwnerPassword)
+		protectedOwner.PUT("/me/last-venue", handlers.SetOwnerLastVenue)
 		protectedOwner.POST("/bookings", handlers.CreateBooking)
 		protectedOwner.POST("/bookings/:id/pay", handlers.RequestBookingPayment)
 		protectedOwner.POST("/reviews/:id/reply", handlers.OwnerReplyToReview)

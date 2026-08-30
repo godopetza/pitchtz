@@ -167,6 +167,7 @@ func AdminListBookings(c *gin.Context) {
 			"id": r.ID, "code": r.Code, "venue": r.VenueName, "pitch": r.PitchName,
 			"customer": r.CustomerName, "starts_at": r.StartsAt, "status": r.Status,
 			"total_tzs": r.TotalTZS, "paid_tzs": r.PaidTZS, "created_at": r.CreatedAt,
+			"cancel_reason": r.CancelReason, "cancel_detail": r.CancelDetail,
 		})
 	}
 	utils.RespondSuccess(c, http.StatusOK, items, "")

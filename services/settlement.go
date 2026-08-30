@@ -2,6 +2,7 @@ package services
 
 import (
 	"context"
+	"strings"
 	"time"
 
 	"github.com/godopetza/pitchtz/initializers"
@@ -106,4 +107,21 @@ func ReconcilePendingCharges() {
 			_ = SettleShareTransaction(ctx, transaction, false, payment.ID)
 		}
 	}
+}
+
+// MarkBookingPaymentFailed notes on the booking why its payment did not go
+// through. It never changes status — a failed attempt is not a dead booking,
+// the player can try again until the hold lapses — it only records the reason
+// so the desk can explain it if they call.
+func MarkBookingPaymentFailed(ctx context.Context, shareID uuid.UUID, reason string) {
+	if initializers.DB == nil || strings.TrimSpace(reason) == "" {
+		return
+	}
+	var share models.PaymentShare
+	if initializers.DB.WithContext(ctx).First(&share, "id = ?", shareID).Error != nil {
+		return
+	}
+	initializers.DB.WithContext(ctx).Model(&models.Booking{}).
+		Where("id = ? AND status = ?", share.BookingID, models.BookingStatusPending).
+		Updates(map[string]any{"cancel_reason": "payment_failed", "cancel_detail": reason})
 }

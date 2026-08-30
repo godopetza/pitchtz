@@ -31,7 +31,7 @@ func ReleaseExpiredHolds() int64 {
 	}
 	cutoff := time.Now().UTC().Add(-BookingHoldWindow())
 	result := initializers.DB.Exec(`
-		UPDATE bookings SET status = 'cancelled', cancelled_at = NOW()
+		UPDATE bookings SET status = 'cancelled', cancelled_at = NOW(), cancel_reason = 'hold_expired'
 		WHERE status = 'pending'
 		  AND created_at < ?
 		  AND id NOT IN (SELECT booking_id FROM payment_shares WHERE status = 'paid')
