@@ -170,7 +170,7 @@ func (h *PublicAPI) GetVenueAvailability(c *gin.Context) {
 		}
 		result = append(result, pitchAvailability{
 			Pitch: PitchPublicDTO{ID: pitch.ID, Name: pitch.Name, Format: pitch.Format, Surface: pitch.Surface,
-				BasePriceTZS: pitch.BasePriceTZS, OpenHours: validJSON(pitch.OpenHours, "{}")},
+				BasePriceTZS: pitch.BasePriceTZS, OpenHours: openHoursOrDefault(pitch.OpenHours)},
 			Unavailable: unavailable,
 		})
 	}
