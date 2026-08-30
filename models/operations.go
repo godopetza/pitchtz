@@ -132,6 +132,8 @@ type Fixture struct {
 	// Team badge URLs from the scrape source's CDN (empty when unknown).
 	HomeImg string `json:"homeImg"`
 	AwayImg string `json:"awayImg"`
+	// LeagueImg is the competition's own crest (Premier League, LaLiga…).
+	LeagueImg string `json:"leagueImg"`
 	// Timeline: compact goal/card events captured while the match is live —
 	// [{"m":24,"p":"Ndoye","s":"0-1","t":"goal"}] — served straight from the
 	// list endpoint so clients never need a per-match request for scorers.

@@ -402,7 +402,7 @@ func fixtureItem(fixture models.Fixture, favorites map[string]bool) gin.H {
 	return gin.H{
 		"id": fixture.ID, "sport": fixture.Sport, "league": fixture.League, "country": fixture.Country,
 		"home": fixture.Home, "away": fixture.Away,
-		"home_img": fixture.HomeImg, "away_img": fixture.AwayImg,
+		"home_img": fixture.HomeImg, "away_img": fixture.AwayImg, "league_img": fixture.LeagueImg,
 		"home_score": fixture.HomeScore, "away_score": fixture.AwayScore,
 		"kickoff_at": fixture.KickoffAt, "status": fixture.Status,
 		"timeline":    json.RawMessage(validJSON(fixture.Timeline, "[]")),

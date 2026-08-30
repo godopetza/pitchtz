@@ -49,10 +49,22 @@ type lsEvent struct {
 	Tr2 string   `json:"Tr2"`
 }
 type lsStage struct {
-	Cnm    string    `json:"Cnm"`
-	Snm    string    `json:"Snm"`
-	Events []lsEvent `json:"Events"`
+	Cnm      string    `json:"Cnm"`
+	Snm      string    `json:"Snm"`
+	BadgeURL string    `json:"badgeUrl"`
+	Events   []lsEvent `json:"Events"`
 }
+
+// leagueBadgeURL resolves a competition crest. Note the host differs from the
+// team badges — competition art lives on storage.livescore.com, not the lsm
+// static CDN.
+func leagueBadgeURL(badge string) string {
+	if badge == "" {
+		return ""
+	}
+	return "https://storage.livescore.com/images/competition/high/" + badge
+}
+
 type lsDay struct {
 	Stages []lsStage `json:"Stages"`
 }
@@ -217,6 +229,7 @@ func scrapeSportRange(ctx context.Context, client *http.Client, sportPath, sport
 					ExternalID: externalID, Sport: sport, League: league, Country: country,
 					Home: event.T1[0].Nm, Away: event.T2[0].Nm,
 					HomeImg: badgeURL(event.T1[0].Img), AwayImg: badgeURL(event.T2[0].Img),
+					LeagueImg: leagueBadgeURL(stage.BadgeURL),
 					KickoffAt: kickoff.UTC(), Status: event.Eps,
 					HomeScore: event.Tr1, AwayScore: event.Tr2,
 				}
@@ -225,7 +238,7 @@ func scrapeSportRange(ctx context.Context, client *http.Client, sportPath, sport
 					initializers.DB.Model(&models.Fixture{}).Where("id = ?", existing.ID).
 						Updates(map[string]any{"kickoff_at": fixture.KickoffAt, "status": fixture.Status,
 							"league": fixture.League, "home_score": fixture.HomeScore, "away_score": fixture.AwayScore,
-							"home_img": fixture.HomeImg, "away_img": fixture.AwayImg})
+							"home_img": fixture.HomeImg, "away_img": fixture.AwayImg, "league_img": fixture.LeagueImg})
 				} else if err := initializers.DB.Create(&fixture).Error; err == nil {
 					*total++
 				}
