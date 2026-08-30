@@ -72,7 +72,43 @@ func SyncDatabase() error {
 	if err := ensureBookingConstraints(DB); err != nil {
 		return err
 	}
-	return backfillBookingContacts(DB)
+	if err := backfillBookingContacts(DB); err != nil {
+		return err
+	}
+	return backfillVenueSlugs(DB)
+}
+
+// backfillVenueSlugs gives every venue a URL slug once. Collisions get a short
+// numeric suffix so two venues sharing a name still get distinct links, and a
+// slug already set is never rewritten — shared links must keep working.
+func backfillVenueSlugs(db *gorm.DB) error {
+	var venues []models.Venue
+	if err := db.Where("slug IS NULL OR slug = ''").Find(&venues).Error; err != nil {
+		return fmt.Errorf("load venues for slugs: %w", err)
+	}
+	filled := 0
+	for _, venue := range venues {
+		base := models.Slugify(venue.Name)
+		if base == "" {
+			base = "venue"
+		}
+		slug := base
+		for attempt := 2; attempt < 50; attempt++ {
+			var clash int64
+			db.Model(&models.Venue{}).Where("slug = ? AND id <> ?", slug, venue.ID).Count(&clash)
+			if clash == 0 {
+				break
+			}
+			slug = fmt.Sprintf("%s-%d", base, attempt)
+		}
+		if err := db.Model(&models.Venue{}).Where("id = ?", venue.ID).Update("slug", slug).Error; err == nil {
+			filled++
+		}
+	}
+	if filled > 0 {
+		log.Printf("backfilled slugs on %d venues", filled)
+	}
+	return nil
 }
 
 // backfillBookingContacts copies each existing booking's account name and

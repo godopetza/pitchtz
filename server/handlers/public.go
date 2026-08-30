@@ -77,9 +77,23 @@ func (h *PublicAPI) ListVenues(c *gin.Context) {
 }
 
 func (h *PublicAPI) GetVenue(c *gin.Context) {
-	id, ok := parseID(c, "id")
-	if !ok {
-		return
+	// The path segment is either a slug (/venues/paddle-in-znz) or a raw uuid.
+	// Old uuid links stay valid forever — a shared link must never rot just
+	// because the URL shape improved.
+	raw := strings.TrimSpace(c.Param("id"))
+	id, err := uuid.Parse(raw)
+	if err != nil {
+		if initializers.DB == nil {
+			utils.RespondError(c, http.StatusNotFound, "VENUE_NOT_FOUND", "venue was not found")
+			return
+		}
+		var found models.Venue
+		if initializers.DB.WithContext(c.Request.Context()).
+			Select("id").Where("slug = ?", raw).First(&found).Error != nil {
+			utils.RespondError(c, http.StatusNotFound, "VENUE_NOT_FOUND", "venue was not found")
+			return
+		}
+		id = found.ID
 	}
 	venue, err := h.Catalog.GetVenue(c.Request.Context(), id)
 	if err != nil {

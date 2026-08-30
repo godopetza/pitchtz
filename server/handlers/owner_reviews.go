@@ -3,6 +3,7 @@ package handlers
 import (
 	"context"
 	"net/http"
+	"os"
 	"strings"
 	"time"
 
@@ -146,7 +147,7 @@ func OwnerCreatePitch(c *gin.Context) {
 	var owner models.User
 	if initializers.DB.First(&venue, "id = ?", venueID).Error == nil &&
 		initializers.DB.First(&owner, "id = ?", venue.OwnerID).Error == nil && owner.Email != nil {
-		go services.SendPitchLiveEmails(context.Background(), *owner.Email, owner.Name, venue.Name, pitch.Name, pitch.Format, pitch.BasePriceTZS, pitch.ID)
+		go services.SendPitchLiveEmails(context.Background(), *owner.Email, owner.Name, venue.Name, pitch.Name, pitch.Format, pitch.BasePriceTZS, pitch.ID, pitchHeroURL(pitch.ID, pitch.PhotoR2Key))
 	}
 	utils.RespondSuccess(c, http.StatusCreated, pitch, "Pitch added.")
 }
@@ -331,4 +332,24 @@ func OwnerVenuePayouts(c *gin.Context) {
 		"gross_tzs": grossTotal, "fee_tzs": feeTotal, "net_tzs": grossTotal - feeTotal,
 		"fee_rate_bps": feeRate, "weeks": weeks,
 	}, "")
+}
+
+// pitchHeroURL resolves the pitch's lead photo into a public URL for emails.
+// Prefers the gallery's first image (the cover the owner chose) and falls
+// back to the legacy single photo; empty when the pitch has no image or the
+// asset host is unset, in which case the email keeps the stock hero.
+func pitchHeroURL(pitchID uuid.UUID, legacyKey string) string {
+	base := strings.TrimRight(os.Getenv("ASSET_BASE_URL"), "/")
+	if base == "" {
+		return ""
+	}
+	key := legacyKey
+	var photo models.PitchPhoto
+	if err := initializers.DB.Where("pitch_id = ?", pitchID).Order("sort ASC").First(&photo).Error; err == nil && photo.R2Key != "" {
+		key = photo.R2Key
+	}
+	if key == "" {
+		return ""
+	}
+	return base + "/" + strings.TrimLeft(key, "/")
 }

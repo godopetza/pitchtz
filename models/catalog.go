@@ -1,6 +1,7 @@
 package models
 
 import (
+	"strings"
 	"time"
 
 	"github.com/google/uuid"
@@ -45,9 +46,13 @@ type CityWaitlist struct {
 
 type Venue struct {
 	Base
-	OwnerID           uuid.UUID      `gorm:"type:uuid;not null;index" json:"ownerId"`
-	CityID            uuid.UUID      `gorm:"type:uuid;not null;index" json:"cityId"`
-	Name              string         `gorm:"not null" json:"name"`
+	OwnerID uuid.UUID `gorm:"type:uuid;not null;index" json:"ownerId"`
+	CityID  uuid.UUID `gorm:"type:uuid;not null;index" json:"cityId"`
+	Name    string    `gorm:"not null" json:"name"`
+	// Slug is the human-readable half of a venue URL — /venues/paddle-in-znz
+	// rather than a raw uuid. Unique, generated from the name, and stable once
+	// set so shared links never rot.
+	Slug              string         `gorm:"uniqueIndex" json:"slug"`
 	Area              string         `gorm:"not null;index" json:"area"`
 	Latitude          float64        `gorm:"not null" json:"latitude"`
 	Longitude         float64        `gorm:"not null" json:"longitude"`
@@ -148,4 +153,28 @@ type DeviceToken struct {
 	// written in their language without a join.
 	Language   string    `gorm:"not null;default:sw" json:"language"`
 	LastSeenAt time.Time `gorm:"not null" json:"lastSeenAt"`
+}
+
+// Slugify turns a display name into a URL-safe slug: lowercase, accents and
+// punctuation dropped, spaces collapsed to single hyphens.
+func Slugify(name string) string {
+	var out []rune
+	lastHyphen := true // leading hyphens are never wanted
+	for _, r := range strings.ToLower(strings.TrimSpace(name)) {
+		switch {
+		case r >= 'a' && r <= 'z', r >= '0' && r <= '9':
+			out = append(out, r)
+			lastHyphen = false
+		default:
+			if !lastHyphen {
+				out = append(out, '-')
+				lastHyphen = true
+			}
+		}
+	}
+	slug := strings.Trim(string(out), "-")
+	if len(slug) > 60 {
+		slug = strings.Trim(slug[:60], "-")
+	}
+	return slug
 }

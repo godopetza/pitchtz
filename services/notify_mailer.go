@@ -62,7 +62,11 @@ func sendBranded(ctx context.Context, to, subject, text string, mail brandedEmai
 	if strings.TrimSpace(to) == "" {
 		return
 	}
-	mail.HeroURL = emailHeroURL()
+	// A caller that has a real photo (the pitch that just went live, say) keeps
+	// it; only emails with nothing of their own fall back to the stock hero.
+	if strings.TrimSpace(mail.HeroURL) == "" {
+		mail.HeroURL = emailHeroURL()
+	}
 	payload := resendEmail{To: []string{to}, Subject: subject, Text: text, HTML: renderPitchTZEmail(mail)}
 	if err := sendResend(ctx, payload, idempotencyKey); err != nil {
 		log.Printf("notify email %q to %s failed: %v", subject, to, err)
@@ -95,7 +99,7 @@ func SendVenueApprovedEmails(ctx context.Context, ownerEmail, ownerName, venueNa
 
 // SendPitchLiveEmails confirms a newly published pitch to the owner and copies
 // the superadmin so the team sees supply growing in real time.
-func SendPitchLiveEmails(ctx context.Context, ownerEmail, ownerName, venueName, pitchName, format string, priceTZS int64, pitchID uuid.UUID) {
+func SendPitchLiveEmails(ctx context.Context, ownerEmail, ownerName, venueName, pitchName, format string, priceTZS int64, pitchID uuid.UUID, photoURL string) {
 	if strings.TrimSpace(ownerName) == "" {
 		ownerName = "there"
 	}
@@ -104,7 +108,7 @@ func SendPitchLiveEmails(ctx context.Context, ownerEmail, ownerName, venueName, 
 		html.EscapeString(ownerName), facts)
 	sendBranded(ctx, ownerEmail, fmt.Sprintf("%s is now bookable on PitchTZ", pitchName),
 		fmt.Sprintf("Hello %s,\n\nYour pitch is live:\n%s at %s\nFormat: %s\nPrice: %s/hour\n\nManage it anytime: %s\n\nBen\nPitchTZ Founder", ownerName, pitchName, venueName, format, formatTZS(priceTZS), ownerAppURL()),
-		brandedEmail{Preheader: pitchName + " is published and bookable.", Eyebrow: "Pitch published", Title: "Your pitch is open for bookings.", BodyHTML: body, ActionLabel: "Open Venue House", ActionURL: ownerAppURL(), Footnote: "You are receiving this because a pitch was published on your PitchTZ venue."},
+		brandedEmail{Preheader: pitchName + " is published and bookable.", Eyebrow: "Pitch published", Title: "Your pitch is open for bookings.", BodyHTML: body, ActionLabel: "Open Venue House", ActionURL: ownerAppURL(), Footnote: "You are receiving this because a pitch was published on your PitchTZ venue.", HeroURL: photoURL},
 		"pitch-live-owner-"+pitchID.String())
 
 	if admin := adminNotifyEmail(); admin != "" && !strings.EqualFold(admin, ownerEmail) {
