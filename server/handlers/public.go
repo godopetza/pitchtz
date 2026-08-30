@@ -16,6 +16,7 @@ import (
 	"github.com/godopetza/pitchtz/store"
 	"github.com/godopetza/pitchtz/utils"
 	"github.com/google/uuid"
+	"gorm.io/gorm"
 )
 
 type PublicAPI struct {
@@ -344,6 +345,12 @@ func respondStoreError(c *gin.Context, err error, resource string) {
 // (a single EAT day), ?league=. With a bearer token, each row carries
 // is_favorite from the user's saved teams so clients can pin them.
 func ListFixtures(c *gin.Context) {
+	// ?team= answers "how is my club doing?" — the five most recent results
+	// and the next five to come, ignoring the day window entirely.
+	if team := strings.TrimSpace(c.Query("team")); team != "" {
+		listTeamFixtures(c, team)
+		return
+	}
 	query := initializers.DB.WithContext(c.Request.Context()).Model(&models.Fixture{})
 	if date := strings.TrimSpace(c.Query("date")); date != "" {
 		if day, err := time.Parse("2006-01-02", date); err == nil {
@@ -380,20 +387,68 @@ func ListFixtures(c *gin.Context) {
 
 	items := make([]gin.H, 0, len(fixtures))
 	for _, fixture := range fixtures {
-		items = append(items, gin.H{
-			"id": fixture.ID, "sport": fixture.Sport, "league": fixture.League, "country": fixture.Country,
-			"home": fixture.Home, "away": fixture.Away,
-			"home_img": fixture.HomeImg, "away_img": fixture.AwayImg,
-			"home_score": fixture.HomeScore, "away_score": fixture.AwayScore,
-			"kickoff_at": fixture.KickoffAt, "status": fixture.Status,
-			"timeline":    json.RawMessage(validJSON(fixture.Timeline, "[]")),
-			"live":        services.FixtureIsLive(fixture.KickoffAt, fixture.Status),
-			"is_favorite": favorites[strings.ToLower(fixture.Home)] || favorites[strings.ToLower(fixture.Away)],
-		})
+		items = append(items, fixtureItem(fixture, favorites))
 	}
 	// Cheap for everyone: anonymous responses are cacheable for 30 seconds.
 	if len(favorites) == 0 {
 		c.Header("Cache-Control", "public, max-age=30")
+	}
+	utils.RespondSuccess(c, http.StatusOK, items, "")
+}
+
+// fixtureItem is the single wire shape for a fixture, shared by the board and
+// the per-team view so they can never drift apart.
+func fixtureItem(fixture models.Fixture, favorites map[string]bool) gin.H {
+	return gin.H{
+		"id": fixture.ID, "sport": fixture.Sport, "league": fixture.League, "country": fixture.Country,
+		"home": fixture.Home, "away": fixture.Away,
+		"home_img": fixture.HomeImg, "away_img": fixture.AwayImg,
+		"home_score": fixture.HomeScore, "away_score": fixture.AwayScore,
+		"kickoff_at": fixture.KickoffAt, "status": fixture.Status,
+		"timeline":    json.RawMessage(validJSON(fixture.Timeline, "[]")),
+		"live":        services.FixtureIsLive(fixture.KickoffAt, fixture.Status),
+		"is_favorite": favorites[strings.ToLower(fixture.Home)] || favorites[strings.ToLower(fixture.Away)],
+	}
+}
+
+// listTeamFixtures serves one club's recent form and upcoming run: five
+// finished matches behind, five ahead, oldest first so the row order reads
+// like a timeline.
+func listTeamFixtures(c *gin.Context, team string) {
+	db := initializers.DB.WithContext(c.Request.Context())
+	now := time.Now().UTC()
+	match := db.Where("LOWER(home) = LOWER(?) OR LOWER(away) = LOWER(?)", team, team)
+
+	var past []models.Fixture
+	match.Session(&gorm.Session{}).
+		Where("kickoff_at < ?", now).
+		Order("kickoff_at DESC").Limit(5).Find(&past)
+	for i, j := 0, len(past)-1; i < j; i, j = i+1, j-1 {
+		past[i], past[j] = past[j], past[i]
+	}
+
+	var upcoming []models.Fixture
+	match.Session(&gorm.Session{}).
+		Where("kickoff_at >= ?", now).
+		Order("kickoff_at ASC").Limit(5).Find(&upcoming)
+
+	fixtures := append(past, upcoming...)
+
+	favorites := map[string]bool{}
+	if viewer := viewerID(c); viewer != uuid.Nil {
+		var rows []models.FavoriteTeam
+		db.Where("user_id = ?", viewer).Find(&rows)
+		for _, row := range rows {
+			favorites[strings.ToLower(row.TeamName)] = true
+		}
+	}
+
+	items := make([]gin.H, 0, len(fixtures))
+	for _, fixture := range fixtures {
+		items = append(items, fixtureItem(fixture, favorites))
+	}
+	if len(favorites) == 0 {
+		c.Header("Cache-Control", "public, max-age=60")
 	}
 	utils.RespondSuccess(c, http.StatusOK, items, "")
 }

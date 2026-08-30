@@ -38,6 +38,7 @@ func badgeURL(img string) string {
 	}
 	return "https://lsm-static-prod.livescore.com/medium/" + img
 }
+
 type lsEvent struct {
 	Eid string   `json:"Eid"`
 	T1  []lsTeam `json:"T1"`
@@ -120,7 +121,7 @@ func ScrapeFixtures() error {
 	type sportPass struct{ path, sport string }
 	passes := []sportPass{{"soccer", "football"}, {"basketball", "basketball"}, {"tennis", "tennis"}, {"cricket", "cricket"}}
 	for _, pass := range passes {
-		if err := scrapeSportDays(ctx, client, pass.path, pass.sport, 8, &total); err != nil {
+		if err := scrapeSportRange(ctx, client, pass.path, pass.sport, -5, 13, &total); err != nil {
 			return err
 		}
 	}
@@ -138,9 +139,19 @@ func ScrapeFixtures() error {
 //     kickoff time anyway).
 func cleanupFixtures() {
 	now := time.Now().UTC()
-	if result := initializers.DB.Where("kickoff_at < ?", now.AddDate(0, 0, -14)).
+	// Finished matches are cheap to keep and are what a team's recent form is
+	// made of, so they live for 90 days; anything else ages out at 14.
+	if result := initializers.DB.
+		Where("kickoff_at < ? AND status IN ?", now.AddDate(0, 0, -90),
+			[]string{"FT", "AET", "AP", "Fin", "FIN"}).
 		Delete(&models.Fixture{}); result.RowsAffected > 0 {
-		log.Printf("fixtures cleanup: purged %d old rows", result.RowsAffected)
+		log.Printf("fixtures cleanup: purged %d finished rows older than 90 days", result.RowsAffected)
+	}
+	if result := initializers.DB.
+		Where("kickoff_at < ? AND status NOT IN ?", now.AddDate(0, 0, -14),
+			[]string{"FT", "AET", "AP", "Fin", "FIN"}).
+		Delete(&models.Fixture{}); result.RowsAffected > 0 {
+		log.Printf("fixtures cleanup: purged %d unfinished old rows", result.RowsAffected)
 	}
 	if result := initializers.DB.Where("status = ? AND kickoff_at < ?", "NS", now.Add(-24*time.Hour)).
 		Delete(&models.Fixture{}); result.RowsAffected > 0 {
@@ -156,7 +167,15 @@ func cleanupFixtures() {
 }
 
 func scrapeSportDays(ctx context.Context, client *http.Client, sportPath, sport string, days int, total *int) error {
-	for offset := range days {
+	return scrapeSportRange(ctx, client, sportPath, sport, 0, days, total)
+}
+
+// scrapeSportRange walks day offsets [from, from+days) — negative offsets
+// backfill finished results so a team's recent form exists straight away
+// rather than accumulating over the following weeks.
+func scrapeSportRange(ctx context.Context, client *http.Client, sportPath, sport string, from, days int, total *int) error {
+	for step := range days {
+		offset := from + step
 		day := time.Now().In(eatZone()).AddDate(0, 0, offset).Format("20060102")
 		url := fmt.Sprintf("https://prod-public-api.livescore.com/v1/api/app/date/%s/%s/3?locale=en&MD=1", sportPath, day)
 		req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
