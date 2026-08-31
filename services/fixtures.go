@@ -453,7 +453,8 @@ func refreshTimelines() {
 	// penalty as an own goal.
 	var stale []models.Fixture
 	initializers.DB.
-		Where("sport = ? AND kickoff_at > ? AND timeline_rev < ?", "football", now.AddDate(0, 0, -8), timelineRev).
+		Where("sport = ? AND kickoff_at > ? AND kickoff_at < ? AND status <> 'NS' AND timeline_rev < ?",
+			"football", now.AddDate(0, 0, -8), now, timelineRev).
 		Order("kickoff_at DESC").Limit(24).Find(&stale)
 	fixtures = append(fixtures, stale...)
 
@@ -493,6 +494,10 @@ func refreshTimelines() {
 			flattenTimeline(period, &events)
 		}
 		if len(events) == 0 {
+			if finished {
+				initializers.DB.Model(&models.Fixture{}).Where("id = ?", fixture.ID).
+					Update("timeline_rev", timelineRev)
+			}
 			continue
 		}
 		for i := 1; i < len(events); i++ {
