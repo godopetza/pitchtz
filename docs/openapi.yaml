@@ -1,7 +1,7 @@
 openapi: 3.0.3
 info:
   title: PitchTZ Client API
-  version: "2.6.0"
+  version: "2.7.0"
   description: |
     The mobile handover contract for the PitchTZ player experience. Every
     operation in this document is **deployed and live today** — this spec is
@@ -109,9 +109,15 @@ paths:
       description: |
         Returns blocked windows (bookings, holds, slot blocks) per pitch for
         the requested range. Build the slot grid client-side from the venue's
-        `open_hours` (empty object = default 08:00–23:00), marking any slot
-        that overlaps an unavailable window. `kind: processing` means someone
-        is paying for that slot right now — show it orange, not bookable.
+        `open_hours`, marking any slot that overlaps an unavailable window.
+        `kind: processing` means someone is paying for that slot right now —
+        show it orange, not bookable.
+
+        `open_hours` is always populated: a venue that has never set its own
+        gets a shared default (08:00–22:00 daily), so every client renders the
+        same day. A missing weekday means closed — say so rather than showing
+        an empty grid. Also drop slots that have already passed, and respect
+        `booking_open_until` when it is set.
       parameters:
         - { $ref: "#/components/parameters/venueId" }
         - name: from
@@ -666,7 +672,14 @@ paths:
         - name: sport
           in: query
           description: Limit results to one sport.
-          schema: { type: string, enum: [football, basketball] }
+          schema: { type: string, enum: [football, basketball, tennis, cricket, f1, boxing] }
+        - name: team
+          in: query
+          description: >
+            One club or national side. Returns that team's last five results and
+            next five fixtures, oldest first, ignoring the date window entirely.
+            Every other query parameter is ignored when this is set.
+          schema: { type: string, example: Simba SC }
         - name: league
           in: query
           description: Exact league name, for example `Ligi Kuu Bara`.
@@ -1075,6 +1088,14 @@ components:
     Venue:
       type: object
       properties:
+        slug: { type: string, example: paddle-in-znz, description: "Readable URL id. `GET /venues/{id}` accepts either this or the uuid, so old uuid links keep working." }
+        booking_open_until:
+          type: string
+          format: date-time
+          description: >
+            The last moment this venue accepts bookings for. Hide any slot past
+            it and do not offer those dates — the server rejects them with
+            BEYOND_BOOKING_WINDOW. Absent means the rolling window applies.
         id: { type: string, format: uuid }
         name: { type: string }
         area: { type: string }
@@ -1087,7 +1108,7 @@ components:
         amenities: { type: array, items: { type: string } }
         open_hours:
           type: object
-          description: 'Weekly hours keyed mon..sun, e.g. {"mon":{"open":"08:00","close":"23:00"}}. Missing day = closed; empty object = default 08:00–23:00.'
+          description: 'Weekly hours keyed mon..sun, e.g. {"mon":{"open":"08:00","close":"22:00"}}. A missing day means closed. Never empty — venues without their own hours receive a shared 08:00–22:00 default.'
           additionalProperties:
             type: object
             properties:
@@ -1284,6 +1305,7 @@ components:
         away: { type: string, example: Pamba SC }
         home_img: { type: string, description: Team badge URL from the data source's CDN; empty when unknown. }
         away_img: { type: string }
+        league_img: { type: string, description: "Competition crest. Empty for competitions belonging to no country — render a globe rather than a flag placeholder." }
         home_score: { type: string, description: Empty until the match starts. }
         away_score: { type: string }
         kickoff_at: { type: string, format: date-time }
