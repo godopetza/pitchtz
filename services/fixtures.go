@@ -322,8 +322,12 @@ func StartFixtureScraper() {
 				if err := scrapeToday(); err != nil {
 					log.Printf("live fixtures refresh failed: %v", err)
 				}
-				refreshTimelines()
 			}
+			// Timelines refresh on their own tick, not only while a match is
+			// live: a correction to the incident map has to reach finished
+			// results too, and both queries cost nothing once everything is
+			// current.
+			refreshTimelines()
 		}
 	}()
 }
