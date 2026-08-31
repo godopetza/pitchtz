@@ -69,9 +69,12 @@ type Venue struct {
 	PeakMultiplierBPS int            `gorm:"not null;default:10000" json:"peakMultiplierBps"`
 	// Weekly opening hours {"mon":{"open":"08:00","close":"23:00"},...};
 	// a missing day means closed, an empty object means the default 08–23.
-	OpenHours         datatypes.JSON `gorm:"type:jsonb;not null;default:'{}'" json:"openHours"`
-	CancelWindowHours int            `gorm:"not null;default:24" json:"cancelWindowHours"`
-	AutoConfirm       bool           `gorm:"not null;default:false" json:"autoConfirm"`
+	OpenHours datatypes.JSON `gorm:"type:jsonb;not null;default:'{}'" json:"openHours"`
+	// BookingOpenUntil closes the calendar beyond a date — "we only take
+	// bookings up to the 30th". Nil means the rolling window applies.
+	BookingOpenUntil  *time.Time `json:"bookingOpenUntil,omitempty"`
+	CancelWindowHours int        `gorm:"not null;default:24" json:"cancelWindowHours"`
+	AutoConfirm       bool       `gorm:"not null;default:false" json:"autoConfirm"`
 
 	City    City           `gorm:"foreignKey:CityID" json:"city"`
 	Pitches []Pitch        `gorm:"foreignKey:VenueID" json:"pitches"`

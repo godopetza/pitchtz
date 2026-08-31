@@ -52,6 +52,7 @@ type VenuePublicDTO struct {
 	ID                uuid.UUID             `json:"id"`
 	Name              string                `json:"name"`
 	Slug              string                `json:"slug,omitempty"`
+	BookingOpenUntil  *time.Time            `json:"booking_open_until,omitempty"`
 	Area              string                `json:"area"`
 	City              CityPublicDTO         `json:"city"`
 	Latitude          float64               `json:"latitude"`
@@ -96,7 +97,7 @@ func venuePublicDTO(venue models.Venue) VenuePublicDTO {
 		Pitches: make([]PitchPublicDTO, 0, len(venue.Pitches)),
 		Photos:  make([]VenuePhotoPublicDTO, 0, len(venue.Photos)),
 		Extras:  make([]ExtraPublicDTO, 0, len(venue.Extras)),
-		Status:  venue.Status, Slug: venue.Slug, OpenHours: openHoursOrDefault(venue.OpenHours)}
+		Status:  venue.Status, Slug: venue.Slug, BookingOpenUntil: venue.BookingOpenUntil, OpenHours: openHoursOrDefault(venue.OpenHours)}
 	for _, pitch := range venue.Pitches {
 		base := strings.TrimRight(os.Getenv("ASSET_BASE_URL"), "/")
 		photoURLs := make([]string, 0, len(pitch.Photos)+1)

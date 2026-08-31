@@ -165,3 +165,81 @@ func CloseVenueDay(c *gin.Context) {
 	}
 	utils.RespondSuccess(c, http.StatusOK, gin.H{"closed": true, "pitches": len(pitchIDs)}, "Day closed.")
 }
+
+// ListClosedDays — GET /v1/owner/venues/:id/closed-days
+// Whole days this venue has shut, so the owner can see and undo them. A day
+// counts as closed when every pitch is blocked for the full 24 hours.
+func ListClosedDays(c *gin.Context) {
+	ownerID, ok := ownerUserID(c)
+	if !ok {
+		return
+	}
+	venueID, ok := parseID(c, "id")
+	if !ok {
+		return
+	}
+	if !ownerOwnsVenue(c, ownerID, venueID) {
+		utils.RespondError(c, http.StatusForbidden, "NOT_YOUR_VENUE", "this venue is not on your account")
+		return
+	}
+	type row struct {
+		Day     time.Time
+		Pitches int64
+	}
+	var rows []row
+	initializers.DB.WithContext(c.Request.Context()).
+		Table("slot_blocks").
+		Select("date_trunc('day', slot_blocks.starts_at AT TIME ZONE 'UTC' AT TIME ZONE 'Africa/Nairobi') AS day, COUNT(DISTINCT slot_blocks.pitch_id) AS pitches").
+		Joins("JOIN pitches ON pitches.id = slot_blocks.pitch_id").
+		Where("pitches.venue_id = ? AND slot_blocks.ends_at - slot_blocks.starts_at >= interval '23 hours'", venueID).
+		Where("slot_blocks.starts_at >= ?", time.Now().UTC().AddDate(0, 0, -1)).
+		Group("day").Order("day ASC").Limit(60).Scan(&rows)
+
+	days := make([]string, 0, len(rows))
+	for _, r := range rows {
+		days = append(days, r.Day.Format("2006-01-02"))
+	}
+	utils.RespondSuccess(c, http.StatusOK, gin.H{"days": days}, "")
+}
+
+// SetBookingWindow — PATCH /v1/owner/venues/:id/booking-window
+// The last date this venue accepts bookings for. Send null to go back to the
+// rolling window.
+func SetBookingWindow(c *gin.Context) {
+	ownerID, ok := ownerUserID(c)
+	if !ok {
+		return
+	}
+	venueID, ok := parseID(c, "id")
+	if !ok {
+		return
+	}
+	if !ownerOwnsVenue(c, ownerID, venueID) {
+		utils.RespondError(c, http.StatusForbidden, "NOT_YOUR_VENUE", "this venue is not on your account")
+		return
+	}
+	var input struct {
+		OpenUntil *string `json:"open_until"`
+	}
+	if err := c.ShouldBindJSON(&input); err != nil {
+		utils.RespondError(c, http.StatusBadRequest, "INVALID_INPUT", "open_until must be YYYY-MM-DD or null")
+		return
+	}
+	if input.OpenUntil == nil || strings.TrimSpace(*input.OpenUntil) == "" {
+		initializers.DB.WithContext(c.Request.Context()).Model(&models.Venue{}).
+			Where("id = ?", venueID).Update("booking_open_until", nil)
+		utils.RespondSuccess(c, http.StatusOK, gin.H{"open_until": nil}, "Calendar open again.")
+		return
+	}
+	day, err := time.Parse("2006-01-02", strings.TrimSpace(*input.OpenUntil))
+	if err != nil {
+		utils.RespondError(c, http.StatusBadRequest, "INVALID_DATE", "open_until must be YYYY-MM-DD")
+		return
+	}
+	eat := time.FixedZone("EAT", 3*3600)
+	// Inclusive of the chosen day: bookings allowed up to its final moment.
+	until := time.Date(day.Year(), day.Month(), day.Day(), 23, 59, 59, 0, eat).UTC()
+	initializers.DB.WithContext(c.Request.Context()).Model(&models.Venue{}).
+		Where("id = ?", venueID).Update("booking_open_until", until)
+	utils.RespondSuccess(c, http.StatusOK, gin.H{"open_until": day.Format("2006-01-02")}, "Booking window saved.")
+}

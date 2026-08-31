@@ -128,6 +128,13 @@ func ClientCreateBooking(c *gin.Context) {
 		utils.RespondError(c, http.StatusNotFound, "VENUE_NOT_AVAILABLE", "this venue is not taking bookings")
 		return
 	}
+	// The owner may have closed the calendar beyond a date. Enforce it here as
+	// well as hiding it in the UI — a stale page must not be able to book past
+	// the horizon.
+	if venue.BookingOpenUntil != nil && input.StartsAt.After(*venue.BookingOpenUntil) {
+		utils.RespondError(c, http.StatusConflict, "BEYOND_BOOKING_WINDOW", "this venue is not taking bookings that far ahead yet")
+		return
+	}
 	if !venueOpenAt(venue, input.StartsAt, input.EndsAt) {
 		utils.RespondError(c, http.StatusConflict, "OUTSIDE_OPEN_HOURS", "the venue is closed at that time")
 		return
