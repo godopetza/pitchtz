@@ -138,6 +138,8 @@ type Fixture struct {
 	// [{"m":24,"p":"Ndoye","s":"0-1","t":"goal"}] — served straight from the
 	// list endpoint so clients never need a per-match request for scorers.
 	Timeline datatypes.JSON `gorm:"type:jsonb;not null;default:'[]'" json:"timeline"`
+	// TimelineRev: which incident map built this timeline. A bump re-fetches.
+	TimelineRev int `gorm:"not null;default:0;index" json:"timelineRev"`
 }
 
 // WatchSpot is a place to WATCH the game — bar, lounge, hall. Publicly

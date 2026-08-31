@@ -34,9 +34,19 @@ var sportPath = map[string]string{
 }
 
 // Known LiveScore incident type codes; anything else passes through raw.
+// Incident types, established by checking real matches rather than assumption:
+// which types advance the score, and whether the scorer belongs to the team
+// the goal is credited to. The previous map had 37 as an own goal (it is a
+// penalty), 39 as a missed penalty (it is the own goal), and 38 as a penalty
+// goal (it never advances the score at all).
+//
+//	36 goal              37 penalty goal      39 own goal
+//	41/47/57 goal        43 yellow  44 second yellow  45 red
+//	38/40/62 carry a score but never change it — not goals, so ignored.
 var incidentLabels = map[int]string{
-	36: "goal", 37: "own_goal", 38: "penalty_goal", 39: "penalty_missed",
-	43: "yellow_card", 45: "red_card", 44: "yellow_red_card",
+	36: "goal", 37: "penalty_goal", 39: "own_goal",
+	41: "goal", 47: "goal", 57: "goal",
+	43: "yellow_card", 44: "yellow_red_card", 45: "red_card",
 	63: "substitution",
 }
 
@@ -78,7 +88,8 @@ func flattenIncidents(items []lsIncident, out *[]gin.H) {
 					side = item.Nm
 				}
 				switch child.IT {
-				case 36, 37, 38:
+				// Every type that actually puts the ball in the net.
+				case 36, 37, 39, 41, 47, 57:
 					goal = gin.H{"minute": child.Min, "type": incidentLabels[child.IT], "player": child.Pn, "team": side}
 					if len(child.Sc) == 2 {
 						goal["score"] = fmt.Sprintf("%d-%d", child.Sc[0], child.Sc[1])

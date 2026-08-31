@@ -355,12 +355,19 @@ type timelineEvent struct {
 	Tm int    `json:"tm,omitempty"` // side: 1 home, 2 away
 }
 
+// Incident types, established by checking real matches rather than assumption:
+// which types advance the score, and whether the scorer belongs to the team
+// the goal is credited to. The previous map had 37 as an own goal (it is a
+// penalty), 39 as a missed penalty (it is the own goal), and 38 as a penalty
+// goal (it never advances the score at all).
+//
+//	36 goal              37 penalty goal      39 own goal
+//	41/47/57 goal        43 yellow  44 second yellow  45 red
+//	38/40/62 carry a score but never change it — not goals, so ignored.
 var timelineLabels = map[int]string{
-	36: "goal", 37: "own_goal", 38: "penalty_goal",
-	// A penalty that did not go in is still part of the story — the client
-	// marks it with a struck-through ball rather than counting it.
-	39: "penalty_missed",
-	43: "yellow_card", 45: "red_card", 44: "yellow_red_card",
+	36: "goal", 37: "penalty_goal", 39: "own_goal",
+	41: "goal", 47: "goal", 57: "goal",
+	43: "yellow_card", 44: "yellow_red_card", 45: "red_card",
 }
 
 type lsTLIncident struct {
@@ -381,7 +388,8 @@ func flattenTimeline(items []lsTLIncident, out *[]timelineEvent) {
 			assist := ""
 			for _, child := range item.Incs {
 				switch child.IT {
-				case 36, 37, 38:
+				// Every type that actually puts the ball in the net.
+				case 36, 37, 39, 41, 47, 57:
 					label := timelineLabels[child.IT]
 					side := child.Nm
 					if side == 0 {
@@ -421,6 +429,11 @@ func flattenTimeline(items []lsTLIncident, out *[]timelineEvent) {
 // refreshTimelines pulls incidents for matches that are live now, plus ones
 // that finished in the last three hours with an empty timeline (so a match
 // ending between polls still gets its final scorers). Bounded per cycle.
+// timelineRev marks which incident map a stored timeline was built with.
+// Bump it whenever the mapping changes and stored rows will re-fetch
+// themselves instead of showing stale, mislabelled events forever.
+const timelineRev = 2
+
 func refreshTimelines() {
 	if initializers.DB == nil {
 		return
@@ -435,11 +448,21 @@ func refreshTimelines() {
 			[]string{"football", "basketball"}, now.Add(-5*time.Hour), now).
 		Limit(16).Find(&fixtures)
 
+	// Anything still carrying a timeline written under the old incident map is
+	// re-fetched too, a batch at a time, so past results stop showing a
+	// penalty as an own goal.
+	var stale []models.Fixture
+	initializers.DB.
+		Where("sport = ? AND kickoff_at > ? AND timeline_rev < ?", "football", now.AddDate(0, 0, -8), timelineRev).
+		Order("kickoff_at DESC").Limit(24).Find(&stale)
+	fixtures = append(fixtures, stale...)
+
 	client := &http.Client{Timeout: 15 * time.Second}
 	for _, fixture := range fixtures {
 		finished := finishedStatuses[fixture.Status]
-		// Finished + already captured → nothing to do.
-		if finished && string(fixture.Timeline) != "[]" && len(fixture.Timeline) > 4 {
+		// Finished, already captured, and captured under the current incident
+		// map → nothing to do.
+		if finished && fixture.TimelineRev >= timelineRev && string(fixture.Timeline) != "[]" && len(fixture.Timeline) > 4 {
 			continue
 		}
 		sportPath := "soccer"
@@ -485,6 +508,6 @@ func refreshTimelines() {
 			continue
 		}
 		initializers.DB.Model(&models.Fixture{}).Where("id = ?", fixture.ID).
-			Update("timeline", encoded)
+			Updates(map[string]any{"timeline": encoded, "timeline_rev": timelineRev})
 	}
 }
