@@ -368,7 +368,7 @@ func OwnerVenuePayouts(c *gin.Context) {
 		Select("date_trunc('week', payment_shares.paid_at) AS week, SUM(payment_shares.amount_tzs) AS gross, COUNT(DISTINCT payment_shares.booking_id) AS count").
 		Joins("JOIN bookings ON bookings.id = payment_shares.booking_id").
 		Joins("JOIN pitches ON pitches.id = bookings.pitch_id").
-		Where("pitches.venue_id = ? AND payment_shares.status = 'paid' AND payment_shares.paid_at >= ?",
+		Where("pitches.venue_id = ? AND payment_shares.status = 'paid' AND payment_shares.kind <> 'cash' AND payment_shares.paid_at >= ?",
 			venueID, time.Now().UTC().Add(-8*7*24*time.Hour)).
 		Group("week").Order("week DESC").Scan(&weekly)
 
@@ -377,7 +377,7 @@ func OwnerVenuePayouts(c *gin.Context) {
 		Table("payment_shares").
 		Joins("JOIN bookings ON bookings.id = payment_shares.booking_id").
 		Joins("JOIN pitches ON pitches.id = bookings.pitch_id").
-		Where("pitches.venue_id = ? AND payment_shares.status = 'paid'", venueID).
+		Where("pitches.venue_id = ? AND payment_shares.status = 'paid' AND payment_shares.kind <> 'cash'", venueID).
 		Select("COALESCE(SUM(payment_shares.amount_tzs), 0)").Scan(&grossTotal)
 
 	feeRate := venue.FeeRateBPS

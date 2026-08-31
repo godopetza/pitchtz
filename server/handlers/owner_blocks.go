@@ -243,3 +243,83 @@ func SetBookingWindow(c *gin.Context) {
 		Where("id = ?", venueID).Update("booking_open_until", until)
 	utils.RespondSuccess(c, http.StatusOK, gin.H{"open_until": day.Format("2006-01-02")}, "Booking window saved.")
 }
+
+// MarkBookingCashPaid — POST /v1/owner/bookings/:id/cash
+// The player settled the balance at the gate. Records it as a paid share of
+// kind "cash" so the booking reads as settled and the desk can see what was
+// collected — but cash never moved through PitchTZ, so it is deliberately
+// excluded from payout totals and earns no platform fee.
+func MarkBookingCashPaid(c *gin.Context) {
+	ownerID, ok := ownerUserID(c)
+	if !ok {
+		return
+	}
+	bookingID, ok := parseID(c, "id")
+	if !ok {
+		return
+	}
+	var booking models.Booking
+	if initializers.DB.WithContext(c.Request.Context()).First(&booking, "id = ?", bookingID).Error != nil {
+		utils.RespondError(c, http.StatusNotFound, "BOOKING_NOT_FOUND", "booking was not found")
+		return
+	}
+	if !ownerOwnsPitch(c, ownerID, booking.PitchID) {
+		utils.RespondError(c, http.StatusForbidden, "NOT_YOUR_BOOKING", "this booking is not at your venue")
+		return
+	}
+
+	var paid int64
+	initializers.DB.WithContext(c.Request.Context()).Model(&models.PaymentShare{}).
+		Where("booking_id = ? AND status = ?", booking.ID, "paid").
+		Select("COALESCE(SUM(amount_tzs), 0)").Scan(&paid)
+	outstanding := booking.TotalTZS - paid
+	if outstanding <= 0 {
+		utils.RespondError(c, http.StatusConflict, "ALREADY_SETTLED", "this booking is already paid in full")
+		return
+	}
+
+	now := time.Now().UTC()
+	share := models.PaymentShare{
+		BookingID: booking.ID,
+		AmountTZS: outstanding,
+		Kind:      "cash",
+		Status:    "paid",
+		PaidAt:    &now,
+	}
+	if err := initializers.DB.WithContext(c.Request.Context()).Create(&share).Error; err != nil {
+		utils.RespondError(c, http.StatusInternalServerError, "CASH_FAILED", "could not record the cash payment")
+		return
+	}
+	initializers.DB.WithContext(c.Request.Context()).Model(&models.Booking{}).
+		Where("id = ?", booking.ID).
+		Updates(map[string]any{"status": models.BookingStatusConfirmed, "balance_at_venue": false})
+
+	utils.RespondSuccess(c, http.StatusOK, gin.H{"collected_tzs": outstanding}, "Cash recorded.")
+}
+
+// CheckInBooking — POST /v1/owner/bookings/:id/check-in
+// They turned up. Stamps the arrival so the desk can tell a no-show from a
+// game that was played.
+func CheckInBooking(c *gin.Context) {
+	ownerID, ok := ownerUserID(c)
+	if !ok {
+		return
+	}
+	bookingID, ok := parseID(c, "id")
+	if !ok {
+		return
+	}
+	var booking models.Booking
+	if initializers.DB.WithContext(c.Request.Context()).First(&booking, "id = ?", bookingID).Error != nil {
+		utils.RespondError(c, http.StatusNotFound, "BOOKING_NOT_FOUND", "booking was not found")
+		return
+	}
+	if !ownerOwnsPitch(c, ownerID, booking.PitchID) {
+		utils.RespondError(c, http.StatusForbidden, "NOT_YOUR_BOOKING", "this booking is not at your venue")
+		return
+	}
+	now := time.Now().UTC()
+	initializers.DB.WithContext(c.Request.Context()).Model(&models.Booking{}).
+		Where("id = ?", booking.ID).Update("checked_in_at", now)
+	utils.RespondSuccess(c, http.StatusOK, gin.H{"checked_in_at": now}, "Checked in.")
+}

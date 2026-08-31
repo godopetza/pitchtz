@@ -190,6 +190,8 @@ func NewRouterWithDeps(deps Deps) *gin.Engine {
 		protectedOwner.POST("/venues/:id/close-day", handlers.CloseVenueDay)
 		protectedOwner.GET("/venues/:id/closed-days", handlers.ListClosedDays)
 		protectedOwner.PATCH("/venues/:id/booking-window", handlers.SetBookingWindow)
+		protectedOwner.POST("/bookings/:id/cash", handlers.MarkBookingCashPaid)
+		protectedOwner.POST("/bookings/:id/check-in", handlers.CheckInBooking)
 		protectedOwner.POST("/bookings", handlers.CreateBooking)
 		protectedOwner.POST("/bookings/:id/pay", handlers.RequestBookingPayment)
 		protectedOwner.POST("/reviews/:id/reply", handlers.OwnerReplyToReview)
