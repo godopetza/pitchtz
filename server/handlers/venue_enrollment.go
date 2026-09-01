@@ -5,6 +5,7 @@ import (
 	"crypto/rand"
 	"encoding/base32"
 	"errors"
+	"fmt"
 	"log"
 	"net/http"
 	"os"
@@ -38,6 +39,27 @@ type enrollVenueInput struct {
 // EnrollVenue is the public "list your venue" application. It does not grant
 // any access on its own: it creates a Venue in "pending" status and an owner
 // User with no credential, awaiting admin review via ApproveVenue.
+// uniqueVenueSlug builds the URL half of a venue link, adding -2, -3 … until
+// it is free. The column is uniquely indexed and Postgres treats two empty
+// strings as equal, so every insert must carry a real slug or the second
+// venue ever enrolled would collide with the first.
+func uniqueVenueSlug(tx *gorm.DB, name string) string {
+	base := models.Slugify(name)
+	if base == "" {
+		base = "venue"
+	}
+	slug := base
+	for attempt := 2; attempt < 50; attempt++ {
+		var clash int64
+		tx.Model(&models.Venue{}).Where("slug = ?", slug).Count(&clash)
+		if clash == 0 {
+			return slug
+		}
+		slug = fmt.Sprintf("%s-%d", base, attempt)
+	}
+	return fmt.Sprintf("%s-%d", base, time.Now().UnixNano())
+}
+
 func (h *PublicAPI) EnrollVenue(c *gin.Context) {
 	if initializers.DB == nil {
 		utils.RespondError(c, http.StatusServiceUnavailable, "DATABASE_REQUIRED", "venue enrollment is unavailable")
@@ -87,6 +109,7 @@ func (h *PublicAPI) EnrollVenue(c *gin.Context) {
 			OwnerID: owner.ID, CityID: cityID, Name: strings.TrimSpace(input.VenueName), Area: strings.TrimSpace(input.Area),
 			Latitude: input.Latitude, Longitude: input.Longitude,
 			Status: models.VenueStatusPending, Amenities: datatypes.JSON([]byte("[]")), Rules: datatypes.JSON([]byte("[]")),
+			Slug:   uniqueVenueSlug(tx, input.VenueName),
 		}
 		if err := tx.Create(&venue).Error; err != nil {
 			return err
@@ -300,6 +323,7 @@ func AdminCreateVenue(c *gin.Context) {
 			OwnerID: owner.ID, CityID: cityID, Name: strings.TrimSpace(input.VenueName), Area: strings.TrimSpace(input.Area),
 			Latitude: input.Latitude, Longitude: input.Longitude, Status: models.VenueStatusActive, Verified: true,
 			Amenities: datatypes.JSON([]byte("[]")), Rules: datatypes.JSON([]byte("[]")),
+			Slug:      uniqueVenueSlug(tx, input.VenueName),
 		}
 		if err := tx.Create(&venue).Error; err != nil {
 			return err

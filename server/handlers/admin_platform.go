@@ -40,7 +40,11 @@ func AdminPlatformStats(c *gin.Context) {
 	db.Model(&models.Venue{}).Where("status = ?", models.VenueStatusPending).Count(&venuesPending)
 	db.Model(&models.Dispute{}).Where("status = ?", "open").Count(&disputesOpen)
 	db.Model(&models.User{}).Where("role = ?", "player").Count(&players)
-	db.Model(&models.PaymentShare{}).Where("status = ?", "paid").
+	// Every money figure on this dashboard means "money that moved through
+	// PitchTZ". Cash taken at the gate is collected by the venue directly, is
+	// excluded from payouts, and carries no platform fee — counting it here
+	// would invent revenue we can never bill.
+	db.Model(&models.PaymentShare{}).Where("status = ? AND kind <> ?", "paid", "cash").
 		Select("COALESCE(SUM(amount_tzs), 0)").Scan(&revenuePaid)
 
 	weekStart := time.Now().UTC().AddDate(0, 0, -7)
@@ -53,9 +57,9 @@ func AdminPlatformStats(c *gin.Context) {
 	db.Model(&models.Booking{}).Where("created_at >= ? AND status = ?", weekStart, models.BookingStatusCancelled).Count(&bookingsFailedWeek)
 
 	var gmvWeek, gmvPrevWeek int64
-	db.Model(&models.PaymentShare{}).Where("status = ? AND paid_at >= ?", "paid", weekStart).
+	db.Model(&models.PaymentShare{}).Where("status = ? AND kind <> ? AND paid_at >= ?", "paid", "cash", weekStart).
 		Select("COALESCE(SUM(amount_tzs), 0)").Scan(&gmvWeek)
-	db.Model(&models.PaymentShare{}).Where("status = ? AND paid_at >= ? AND paid_at < ?", "paid", prevWeekStart, weekStart).
+	db.Model(&models.PaymentShare{}).Where("status = ? AND kind <> ? AND paid_at >= ? AND paid_at < ?", "paid", "cash", prevWeekStart, weekStart).
 		Select("COALESCE(SUM(amount_tzs), 0)").Scan(&gmvPrevWeek)
 
 	// GMV, weekly buckets for the last 8 weeks.
@@ -66,7 +70,7 @@ func AdminPlatformStats(c *gin.Context) {
 	var weeks []weekRow
 	db.Model(&models.PaymentShare{}).
 		Select("date_trunc('week', paid_at) AS week, COALESCE(SUM(amount_tzs), 0) AS amount").
-		Where("status = ? AND paid_at >= ?", "paid", time.Now().UTC().AddDate(0, 0, -56)).
+		Where("status = ? AND kind <> ? AND paid_at >= ?", "paid", "cash", time.Now().UTC().AddDate(0, 0, -56)).
 		Group("week").Order("week").Scan(&weeks)
 	weekly := make([]gin.H, 0, len(weeks))
 	for _, w := range weeks {
@@ -108,7 +112,7 @@ func AdminPlatformStats(c *gin.Context) {
 			COALESCE((SELECT COUNT(*) FROM bookings b JOIN pitches p ON p.id = b.pitch_id WHERE p.venue_id = venues.id AND b.created_at >= ?), 0) AS bookings_week,
 			COALESCE((SELECT COUNT(*) FROM bookings bf JOIN pitches pf ON pf.id = bf.pitch_id WHERE pf.venue_id = venues.id AND bf.created_at >= ? AND bf.status IN ('confirmed','completed','part_paid')), 0) AS funded_week,
 			COALESCE((SELECT COUNT(*) FROM bookings bc JOIN pitches pc ON pc.id = bc.pitch_id WHERE pc.venue_id = venues.id AND bc.created_at >= ? AND bc.status = 'cancelled'), 0) AS cancelled_week,
-			COALESCE((SELECT SUM(ps.amount_tzs) FROM payment_shares ps JOIN bookings b2 ON b2.id = ps.booking_id JOIN pitches p2 ON p2.id = b2.pitch_id WHERE p2.venue_id = venues.id AND ps.status = 'paid' AND ps.paid_at >= ?), 0) AS gmv_week`,
+			COALESCE((SELECT SUM(ps.amount_tzs) FROM payment_shares ps JOIN bookings b2 ON b2.id = ps.booking_id JOIN pitches p2 ON p2.id = b2.pitch_id WHERE p2.venue_id = venues.id AND ps.status = 'paid' AND ps.kind <> 'cash' AND ps.paid_at >= ?), 0) AS gmv_week`,
 			weekStart, weekStart, weekStart, weekStart).
 		Where("venues.status = ?", models.VenueStatusActive).
 		Order("bookings_week DESC, venues.rating DESC").Limit(8).Scan(&top)
