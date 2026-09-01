@@ -66,6 +66,13 @@ func CreateBooking(c *gin.Context) {
 		return
 	}
 
+	// An owner logging a walk-in onto a slot they closed is almost always a
+	// mistake — say so rather than quietly reopening it.
+	if pitchSlotBlocked(c, input.PitchID, input.StartsAt, input.EndsAt) {
+		utils.RespondError(c, http.StatusConflict, "SLOT_CLOSED", "this pitch is closed for that time — reopen the slot first")
+		return
+	}
+
 	customerID, err := findOrCreateCustomer(c, input.CustomerName, input.CustomerPhone)
 	if err != nil {
 		utils.RespondError(c, http.StatusInternalServerError, "CUSTOMER_LOOKUP_FAILED", "could not record the customer")

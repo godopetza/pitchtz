@@ -1,6 +1,7 @@
 package handlers
 
 import (
+	"errors"
 	"net/http"
 	"strings"
 	"time"
@@ -10,7 +11,13 @@ import (
 	"github.com/godopetza/pitchtz/models"
 	"github.com/godopetza/pitchtz/utils"
 	"github.com/google/uuid"
+	"gorm.io/gorm"
+	"gorm.io/gorm/clause"
 )
+
+// errAlreadySettled unwinds the cash transaction without treating a
+// double-tap as a server error.
+var errAlreadySettled = errors.New("already settled")
 
 // BlockPitchSlot — POST /v1/owner/pitches/:id/blocks
 // Closes a window on one pitch: maintenance, a private game, a holiday. The
@@ -268,31 +275,46 @@ func MarkBookingCashPaid(c *gin.Context) {
 		return
 	}
 
-	var paid int64
-	initializers.DB.WithContext(c.Request.Context()).Model(&models.PaymentShare{}).
-		Where("booking_id = ? AND status = ?", booking.ID, "paid").
-		Select("COALESCE(SUM(amount_tzs), 0)").Scan(&paid)
-	outstanding := booking.TotalTZS - paid
-	if outstanding <= 0 {
+	// Read the outstanding balance and write the cash share inside one
+	// transaction, with the booking row locked. Two taps on the button (or two
+	// staff at the desk) would otherwise each read the same balance and each
+	// record it, booking the money twice.
+	var outstanding int64
+	err := initializers.DB.WithContext(c.Request.Context()).Transaction(func(tx *gorm.DB) error {
+		var locked models.Booking
+		if err := tx.Clauses(clause.Locking{Strength: "UPDATE"}).
+			First(&locked, "id = ?", booking.ID).Error; err != nil {
+			return err
+		}
+		var paid int64
+		tx.Model(&models.PaymentShare{}).
+			Where("booking_id = ? AND status = ?", locked.ID, "paid").
+			Select("COALESCE(SUM(amount_tzs), 0)").Scan(&paid)
+		outstanding = locked.TotalTZS - paid
+		if outstanding <= 0 {
+			return errAlreadySettled
+		}
+		now := time.Now().UTC()
+		if err := tx.Create(&models.PaymentShare{
+			BookingID: locked.ID,
+			AmountTZS: outstanding,
+			Kind:      "cash",
+			Status:    "paid",
+			PaidAt:    &now,
+		}).Error; err != nil {
+			return err
+		}
+		return tx.Model(&models.Booking{}).Where("id = ?", locked.ID).
+			Updates(map[string]any{"status": models.BookingStatusConfirmed, "balance_at_venue": false}).Error
+	})
+	if errors.Is(err, errAlreadySettled) {
 		utils.RespondError(c, http.StatusConflict, "ALREADY_SETTLED", "this booking is already paid in full")
 		return
 	}
-
-	now := time.Now().UTC()
-	share := models.PaymentShare{
-		BookingID: booking.ID,
-		AmountTZS: outstanding,
-		Kind:      "cash",
-		Status:    "paid",
-		PaidAt:    &now,
-	}
-	if err := initializers.DB.WithContext(c.Request.Context()).Create(&share).Error; err != nil {
+	if err != nil {
 		utils.RespondError(c, http.StatusInternalServerError, "CASH_FAILED", "could not record the cash payment")
 		return
 	}
-	initializers.DB.WithContext(c.Request.Context()).Model(&models.Booking{}).
-		Where("id = ?", booking.ID).
-		Updates(map[string]any{"status": models.BookingStatusConfirmed, "balance_at_venue": false})
 
 	utils.RespondSuccess(c, http.StatusOK, gin.H{"collected_tzs": outstanding}, "Cash recorded.")
 }
@@ -322,4 +344,16 @@ func CheckInBooking(c *gin.Context) {
 	initializers.DB.WithContext(c.Request.Context()).Model(&models.Booking{}).
 		Where("id = ?", booking.ID).Update("checked_in_at", now)
 	utils.RespondSuccess(c, http.StatusOK, gin.H{"checked_in_at": now}, "Checked in.")
+}
+
+// pitchSlotBlocked reports whether the owner has closed any part of this
+// window. Bookings must honour it: the UI hides blocked slots, but a stale
+// page or a direct API call would otherwise sell a pitch that is shut for
+// maintenance, and the venue would have to turn the customer away.
+func pitchSlotBlocked(c *gin.Context, pitchID uuid.UUID, startsAt, endsAt time.Time) bool {
+	var count int64
+	initializers.DB.WithContext(c.Request.Context()).Model(&models.SlotBlock{}).
+		Where("pitch_id = ? AND starts_at < ? AND ends_at > ?", pitchID, endsAt.UTC(), startsAt.UTC()).
+		Count(&count)
+	return count > 0
 }

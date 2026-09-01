@@ -135,6 +135,10 @@ func ClientCreateBooking(c *gin.Context) {
 		utils.RespondError(c, http.StatusConflict, "BEYOND_BOOKING_WINDOW", "this venue is not taking bookings that far ahead yet")
 		return
 	}
+	if pitchSlotBlocked(c, input.PitchID, input.StartsAt, input.EndsAt) {
+		utils.RespondError(c, http.StatusConflict, "SLOT_CLOSED", "the venue has closed this pitch for that time")
+		return
+	}
 	if !venueOpenAt(venue, input.StartsAt, input.EndsAt) {
 		utils.RespondError(c, http.StatusConflict, "OUTSIDE_OPEN_HOURS", "the venue is closed at that time")
 		return
